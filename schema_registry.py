@@ -23,7 +23,14 @@ DEFAULT = {
     "upcoming_match_90696_summary": {
       "role": "upcoming_match", "description": "upcoming match + prediction", "fields": []
     }
-  }
+  },
+
+  "core_rules": {
+    "mode": "auto",          
+    "custom_text": ""        
+    },
+  "user_match_context": ""   # optional admin-entered “extra add-up” context
+
 }
 
 def load_registry() -> Dict:  # {options_max:int, collections:{<coll_name>:{role,description,fields}}}
@@ -72,3 +79,25 @@ def get_core_coll_map(reg: Dict | None = None) -> Dict[str, str]:
 def get_descriptions(reg: Dict | None = None) -> Dict[str, str]:
     reg = reg or load_registry()
     return {coll: meta.get("description","") for coll, meta in reg["collections"].items()}
+
+
+def get_core_rules_config(reg: Dict | None = None) -> Dict:
+    reg = reg or load_registry()
+    cfg = reg.get("core_rules", {})
+    return {"mode": cfg.get("mode", "auto"),
+            "custom_text": cfg.get("custom_text", "")}
+
+def set_core_rules_config(mode: str, custom_text: str) -> Dict:
+    reg = load_registry()
+    reg["core_rules"] = {"mode": mode, "custom_text": custom_text}
+    save_registry(reg); return reg
+
+def get_user_match_context(reg: Dict | None = None) -> str:
+    reg = reg or load_registry()
+    return reg.get("user_match_context", "")
+
+def set_user_match_context(text: str) -> Dict:
+    reg = load_registry()
+    reg["user_match_context"] = text or ""
+    save_registry(reg); return reg
+
