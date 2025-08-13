@@ -21,8 +21,16 @@ from langchain_core.callbacks import BaseCallbackHandler
 
 from difflib import get_close_matches
 # search_agent_new.py  (only showing relevant edits)
-from core_rules import render_core_rules, render_match_context, render_schema_section
+from core_rules import render_core_rules, render_match_context, render_schema_section_all
 from schema_registry import load_registry, get_all_fields, get_core_coll_map, get_descriptions
+
+def _load_schema_live():
+    reg = load_registry()
+    all_fields   = get_all_fields(reg)
+    core_map     = get_core_coll_map(reg)
+    descriptions = get_descriptions(reg)
+    options_max  = reg.get("options_max", 20)
+    return all_fields, core_map, descriptions, options_max
 
 
 class PrintIntermediateStepsHandler(BaseCallbackHandler):
@@ -206,7 +214,8 @@ DESCRIPTIONS    = get_descriptions(_reg)
 OPTIONS_MAX     = _reg.get("options_max", 20)
 
 
-SCHEMA_SECTION  = render_schema_section(ALL_FIELDS, DESCRIPTIONS, OPTIONS_MAX)
+SCHEMA_SECTION  = render_schema_section_all(ALL_FIELDS, DESCRIPTIONS, OPTIONS_MAX)
+
 CORE_RULES_TEXT = render_core_rules(CORE_COLL_MAP)
 USER_MATCH_CONTEXT = render_match_context(MATCH_CONTEXT)  # Make MATCH_CONTEXT user-editable; can be empty
 
@@ -419,11 +428,14 @@ def _run_query(collection_key: str, spec: Dict[str, Any]) -> QueryResult:
 
         # For normal collections we still project just "summary".
         # For the one‑row upcoming_match_91776 we return the full doc.
-        projection = (
-            {"_id": 0}                               # ← all keys
-            if coll_name == "upcoming_match_90696_summary"  # ← upcoming_match_91776
-            else {"summary": 1, "_id": 0}            # legacy behaviour
-        )
+
+        # projection = (
+        #     {"_id": 0}                               # ← all keys
+        #     if coll_name == "upcoming_match_90696_summary"  # ← upcoming_match_91776
+        #     else {"summary": 1, "_id": 0}            # legacy behaviour
+        # )
+
+        projection = {"_id": 0} if collection_key == "upcoming_match" else {"summary": 1, "_id": 0}
 
         cursor = _apply_sort(
             coll.find(mongo_filter, projection),
@@ -530,6 +542,11 @@ Rassie van der Dussen, George Linde, Senuran Muthusamy, Prenelan Subrayen, Nandr
 # Initialize MemoryAgent for language detection only
 # mem = MemoryAgent(k=5)
 
+U = COLL_MAP.get("upcoming_match", "upcoming_match")
+M = COLL_MAP.get("matches", "matches")
+P = COLL_MAP.get("players", "players")
+V = COLL_MAP.get("venues",  "venues")
+
 SYSTEM_PROMPT = """
 You are an expert MongoDB query planner for three collections:
 
@@ -561,18 +578,12 @@ Your job:
 
 1. Read the user’s natural-language request.
 
-• If it mentions **“this match”, “current match”, “our fixture”, “the match in context”** (or similar) and the intent is to get details of that single fixture, output exactly:
-  {{{{
-    "collection": "upcoming_match_90696_summary",
-    "filters": [],
-    "sort": {{{{}}}},
-    "limit": 1
-  }}}}
+• If it mentions **“this match”, “current match”, “our fixture”, “the match in context”** (or similar) and the intent is to get details of that single fixture, use the upcoming match collection.
   If additional collections are also needed, include this object as one element of a top-level "queries" list.
 
 2. For other requests, output either:
    {{{{
-     "collection": "matches_filtered_90696" | "players_filtered_90696" | "venues_filtered_90696",
+     "collection": "collection1" | "collection2" | "colection3",
      "filters": [{{{{"field": "...", "operation": "...", "value": ...}}}}, ...],
      "sort":    {{{{"field_name": "asc|desc"}}}},
      "limit":   <int - default 10>
@@ -647,73 +658,6 @@ IMPORTANT:
   - Fetch and use the full "prediction_data" object from upcoming_match.
   - Base your response suggestions directly on its values.
 
-### Examples
-
-
-• If it mentions “this venue”, “current venue”, or gives **only a venue name**
-  and **no league at all**, DO NOT add a league_name filter. Simply use:
-  {{{{
-    "collection": "matches_filtered_90696",
-    "filters": [
-      {{{{"field": "venue", "operation": "regex", "value": "<the venue>"}}}}
-    ],
-    "sort": {{{{}}}},
-    "limit": 10
-  }}}}
-
-User: which players are playing from zimbabve in this match
-JSON:
-{{{{
-    "collection": "upcoming_match_90696_summary",
-    "filters": [],
-    "sort": {{{{}}}},
-    "limit": 1
-  }}}}
-
-User: top 3 players with most fantasy points in IPL
-JSON:
-{{{{
-  "collection": "players_filtered_90696",
-  "filters": [
-    {{{{"field": "league_name", "operation": "regex", "value": "Indian Premier League"}}}}
-  ],
-  "sort": {{{{"field_name": "fantasy_points", "order": "desc"}}}},
-  "limit": 3
-}}}}
-User: venues with highest capacity in Mumbai
-JSON:
-{{{{
-  "collection": "venues_filtered_90696",
-  "filters": [
-    {{{{"field": "city", "operation": "regex", "value": "Mumbai"}}}}
-  ],
-  "sort": {{{{"field_name": "capacity", "order": "desc"}}}},
-  "limit": 1
-}}}}
-
-User: top 3 players with most fantasy points in IPL and venue with highest capacity in Mumbai
-JSON:
-{{{{
-  "queries": [
-    {{{{
-      "collection": "players_filtered_90696",
-      "filters": [
-        {{{{"field": "league_name", "operation": "regex", "value": "Indian Premier League"}}}}
-      ],
-      "sort": {{{{"field_name": "fantasy_points", "order": "desc"}}}},
-      "limit": 3
-    }}}},
-    {{{{
-      "collection": "venues_filtered_90696",
-      "filters": [
-        {{{{"field": "city", "operation": "regex", "value": "Mumbai"}}}}
-      ],
-      "sort": {{{{"field_name": "capacity", "order": "desc"}}}},
-      "limit": 1
-    }}}}
-  ]
-}}}}
-
 
 """.format(schema_section=SCHEMA_SECTION)
 
@@ -781,6 +725,18 @@ def run_search_agent(
     3) Figure out which tool to call
     4) Call it and pretty-print the results
     """
+
+    global ALL_FIELDS, CORE_COLL_MAP, DESCRIPTIONS, OPTIONS_MAX
+    global COLL_MAP, SEARCHABLE_FIELDS, CORE_RULES_TEXT, SCHEMA_SECTION
+
+    ALL_FIELDS, CORE_COLL_MAP, DESCRIPTIONS, OPTIONS_MAX = _load_schema_live()
+    COLL_MAP          = CORE_COLL_MAP            # back-compat alias (roles → names)
+    SEARCHABLE_FIELDS = ALL_FIELDS               # back-compat alias ({name: fields})
+
+    # ---------- 1) build dynamic prompt blocks ----------
+    SCHEMA_SECTION  = render_schema_section_all(ALL_FIELDS, DESCRIPTIONS, OPTIONS_MAX)
+    CORE_RULES_TEXT = render_core_rules(CORE_COLL_MAP)
+    
 
     # -------- always-defined placeholders --------
     debug_blob: Dict[str, Any] = {}
@@ -869,6 +825,8 @@ def run_search_agent(
             coll_key = "players"
         elif raw_name.startswith("venues"):
             coll_key = "venues"
+        elif raw_name.startswith("matches"):
+            coll_key = "matches"
         else:
             coll_key = next((k for k, v in COLL_MAP.items() if v == raw_name), None)
         if not coll_key:
@@ -896,9 +854,10 @@ def run_search_agent(
             field = qspec["sort"].pop("field_name")
             order = qspec["sort"].pop("order", "asc")
             qspec["sort"] = {field: order}
-        if COLL_MAP[coll_key] in ["matches_filtered_90696", "players_filtered_90696"]:
-            if "scheduled_date" not in qspec["sort"]:
-                qspec["sort"]["scheduled_date"] = "desc"
+        # after
+        if coll_key in ("matches", "players"):
+            qspec.setdefault("sort", {})
+            qspec["sort"].setdefault("scheduled_date", "desc")
 
         print("\n[NORMALIZED QUERY SPEC]\n", json.dumps(qspec, indent=2))
 
