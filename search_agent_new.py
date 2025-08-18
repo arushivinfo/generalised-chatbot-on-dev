@@ -209,6 +209,7 @@ LEAGUE_NAMES = db.matches_filtered_90696.distinct("league_name")
 
 _reg = load_registry()
 ALL_FIELDS      = get_all_fields(_reg)         # {coll_name: fields[]}
+print("-----All Fields------",ALL_FIELDS)
 CORE_COLL_MAP   = get_core_coll_map(_reg)      # {'matches': 'matches_filtered_90696', ...}
 DESCRIPTIONS    = get_descriptions(_reg)
 OPTIONS_MAX     = _reg.get("options_max", 20)
@@ -281,7 +282,7 @@ def pick_collection(spec: dict) -> str | None:
 #      • if op = keyword but the field is scalar string (and schema
 #        doesn’t list keyword) → flip to regex
 # def _normalise_filter(filt: dict) -> dict:
-def _normalise_filter(filt: dict, collection: str = "players_filtered", invalid_fields: Optional[List[tuple]] = None) -> dict | None:
+def _normalise_filter(filt: dict, collection: str, invalid_fields: Optional[List[tuple]] = None) -> dict | None:
     out = filt.copy()
 
     # 1) unwrap single-element lists so $regex always gets a string
@@ -307,7 +308,7 @@ def _normalise_filter(filt: dict, collection: str = "players_filtered", invalid_
 
     # 3) fuzzy match for allowed options
     for field_meta in SEARCHABLE_FIELDS.get(collection, []):
-        if field_meta["name"] == out["field"] and "options" in field_meta:
+        if field_meta["name"] == out["field"] and "options" in field_meta and field_meta["options"]:
             allowed = field_meta["options"]
             raw_val = out["value"]
 
@@ -338,6 +339,12 @@ def _safe(obj):
 
 
 def _run_query(collection_key: str, spec: Dict[str, Any]) -> QueryResult:
+
+    import json
+    print("\n===== FINAL SEARCH SPEC (BEFORE EXECUTING) =====")
+    print(json.dumps(spec, indent=2, ensure_ascii=False))
+    print("===============================================\n")
+
     try:
         parsed      = EntityQuery(**spec)
         coll_name   = COLL_MAP[collection_key]
@@ -346,53 +353,56 @@ def _run_query(collection_key: str, spec: Dict[str, Any]) -> QueryResult:
         regular_filters = []
         team_name_map = {}  # group team name values
 
-        # # ---------- filters ----------
-        # for f in parsed.filters:
-        #     fld_meta = next((m for m in SEARCHABLE_FIELDS[coll_name]
-        #                      if m["name"] == f.field), None)
-        #     if not fld_meta or f.operation not in fld_meta["operations"]:
-        #         return {"ok": False,
-        #                 "error": f"Invalid field/operation: {f.field},{f.operation}",
-        #                 "filter": mongo_filter}
-
-        #     if f.operation == "regex":
-        #         mongo_filter[f.field] = {"$regex": f.value, "$options": "i"}
-        #     elif f.operation == "keyword":
-        #         mongo_filter[f.field] = {"$elemMatch": {"$regex": f.value,
-        #                                                 "$options": "i"}}
-        #     elif f.operation == "range":
-        #         rng = ( {op: datetime.fromisoformat(v) if isinstance(v, str) else v
-        #                  for op, v in f.value.items()}
-        #                 if fld_meta["type"] == "date" else f.value )
-        #         mongo_filter[f.field] = rng
-
         # ---------- filters ----------
         for f in parsed.filters:
             fld_meta = next((m for m in SEARCHABLE_FIELDS[coll_name]
-                            if m["name"] == f.field), None)
+                             if m["name"] == f.field), None)
             if not fld_meta or f.operation not in fld_meta["operations"]:
                 return {"ok": False,
                         "error": f"Invalid field/operation: {f.field},{f.operation}",
                         "filter": mongo_filter}
 
-            # GROUP team filters
-            if f.field in ["home_display_team_name", "away_display_team_name"]:
-                val = f.value.lower()
-                team_name_map.setdefault(val, set()).add(f.field)
-                continue
-
-            # Regular filters
             if f.operation == "regex":
-                regular_filters.append({f.field: {"$regex": f.value, "$options": "i"}})
+                mongo_filter[f.field] = {"$regex": f.value, "$options": "i"}
             elif f.operation == "keyword":
-                regular_filters.append({f.field: {"$elemMatch": {"$regex": f.value, "$options": "i"}}})
+                mongo_filter[f.field] = {"$elemMatch": {"$regex": f.value,
+                                                        "$options": "i"}}
             elif f.operation == "range":
-                rng = (
-                    {op: datetime.fromisoformat(v) if isinstance(v, str) else v
-                    for op, v in f.value.items()}
-                    if fld_meta["type"] == "date" else f.value
-                )
-                regular_filters.append({f.field: rng})
+                rng = ( {op: datetime.fromisoformat(v) if isinstance(v, str) else v
+                         for op, v in f.value.items()}
+                        if fld_meta["type"] == "date" else f.value )
+                mongo_filter[f.field] = rng
+
+        # --- normalize filters against schema ---
+        # normalized_filters = []
+        # invalid_fields = []
+        # for f in parsed.filters:
+        #     f_dict = _normalise_filter(
+        #         f.dict(),
+        #         collection=coll_name,     # ✅ force correct schema collection
+        #         invalid_fields=invalid_fields
+        #     )
+        #     if f_dict:
+        #         normalized_filters.append(EntityFilter(**f_dict))
+        # parsed.filters = normalized_filters
+
+        # print("\n[DEBUG] Normalized Filters:")
+        # for nf in normalized_filters:
+        #     print(nf.dict())
+        # print()
+
+        # # --- skip normalization, use filters as-is ---
+        # # parsed.filters = [EntityFilter(**f.dict()) for f in parsed.filters]
+
+        # for f in parsed.filters:
+        #     if f.operation == "regex":
+        #         mongo_filter[f.field] = {"$regex": f.value, "$options": "i"}
+        #     elif f.operation == "keyword":
+        #         mongo_filter[f.field] = {"$elemMatch": {"$regex": f.value, "$options": "i"}}
+        #     elif f.operation == "range":
+        #         mongo_filter[f.field] = f.value
+
+
 
         # 🔁 Now build grouped $or filters for each unique team name
         for team_val, fields in team_name_map.items():
@@ -670,8 +680,8 @@ PROMPT_without_memory = ChatPromptTemplate.from_messages(
 # ────────────────────────────────
 llm = ChatOpenAI(model="gpt-4.1-mini")
 
-def get_memory_prompt():
-    memories = get_last_memories(1)
+def get_memory_prompt(n):
+    memories = get_last_memories(n)
     mem_text = "\n".join(
         [f"Previous Q: {m['query']}\nPrevious A: {m['answer']}" for m in memories if "no data" not in m['answer'].lower()]
     )
@@ -683,7 +693,7 @@ def get_memory_prompt():
         "Never use a pronoun as a value in any query field. For example, if the last answer was about 'Virat Kohli', and the user now asks 'How many runs did he make?', use 'Virat Kohli' as the value for 'player_name'.\n"
         "The most recent memory (highest weight) is listed first.\n"
     )
-MEMORY_PROMPT = get_memory_prompt()
+MEMORY_PROMPT = get_memory_prompt(1)
 print("Memory context for prompt(Search agent):", MEMORY_PROMPT) 
 
 # If you currently build PROMPT via ChatPromptTemplate, keep that; just swap in variables:
