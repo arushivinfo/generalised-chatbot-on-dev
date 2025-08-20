@@ -15,12 +15,22 @@ from response_gen import DEFAULT_PROMPT_SECTIONS, compose_prompt,get_memory_prom
 from response_gen import narrator                      # ChatOpenAI instance
 
 # --- Collection metadata for rows formatting ---
-COLL_META = {
-    "players":        ("players_filtered_90696",      "players_filtered collection – contains historical data of players"),
-    "matches":        ("matches_filtered_90696",      "matches_filtered collection – contains historical match summaries"),
-    "venues":         ("venues_filtered_90696",       "venues_filtered collection – contains venue and ground stats"),
-    "upcoming_match": ("upcoming_match_90696_summary","upcoming_match collection – contains prediction data and details of upcoming match"),
-}
+# COLL_META = {
+#     "players":        ("players_filtered_90696",      "players_filtered collection – contains historical data of players"),
+#     "matches":        ("matches_filtered_90696",      "matches_filtered collection – contains historical match summaries"),
+#     "venues":         ("venues_filtered_90696",       "venues_filtered collection – contains venue and ground stats"),
+#     "upcoming_match": ("upcoming_match_90696_summary","upcoming_match collection – contains prediction data and details of upcoming match"),
+# }
+from schema_registry import load_registry, get_collection_names, get_descriptions
+
+def _coll_meta_from_registry():
+    reg = load_registry()
+    names = get_collection_names(reg)       # {'matches': '<coll>', ...}
+    desc = get_descriptions(reg)        # {'<coll>': 'short description', ...}
+    return {name: (name, (desc.get(name) or "no description")) for name in names}
+
+
+COLL_META = _coll_meta_from_registry()
 
 def _normalize_coll_key(name: str) -> str:
     """
@@ -34,84 +44,24 @@ def _normalize_coll_key(name: str) -> str:
     return name  # fallback
 
 def build_rows_for_prompt(dbg: dict) -> str:
+    """Render full objects (pretty JSON) per collection."""
     cols_order = dbg.get("chosen_collections", []) or []
     results    = dbg.get("results", []) or []
     blocks     = []
-
-    for i, key in enumerate(cols_order):
+    for i, coll in enumerate(cols_order):
         res  = results[i] if i < len(results) else {}
         docs = res.get("docs", []) or []
-
-        # Display name + description for header
-        coll_name, desc = COLL_META.get(key, (key, ""))
-        header = f"# {coll_name}\n({desc})"
-
-        if key == "upcoming_match":
-            # Render the full upcoming_match document(s) as pretty JSON
-            if docs:
-                import json
-                pretty_docs = []
-                for d in docs:
-                    pretty_docs.append(json.dumps(d, ensure_ascii=False, indent=2))
-                blocks.append("\n".join([
-                    header,
-                    "```json",
-                    "\n\n".join(pretty_docs),
-                    "```",
-                ]))
-            else:
-                blocks.append("\n".join([
-                    header,
-                    "- doc_count: 0",
-                    "- (no upcoming-match document returned)",
-                ]))
+        if not docs:
+            blocks.append(f"# {coll}\n(no rows)")
             continue
-
-        # Non-upcoming collections → we expect 'summary' projection
-        lines = []
-        for d in docs:
-            s = d.get("summary")
-            if s:
-                lines.append(f"• {s.strip()}")
-            else:
-                # Fallback: short KV preview if summary missing
-                preview = ", ".join(f"{k}: {str(v)[:80]}" for k, v in list(d.items())[:4] if k != "_id")
-                lines.append(f"• {preview}" if preview else "• (no summary)")
-        if not lines:
-            lines = ["(no summaries)"]
-
-        blocks.append("\n".join([header] + lines[:30]))  # cap bullets to keep prompt lean
-
+        blob = "\n\n".join("```json\n" + json.dumps(d, indent=2, default=str) + "\n```" for d in docs[:30])
+        blocks.append(f"# {coll}\n{blob}")
     return "\n\n".join(blocks) or "(no rows)"
 
 
-
-DEFAULT_PLAYER_TPL = """\
-**If the question is about players, do follow below instructions. You can ignore other formatting instructions**:
-- Use a markdown table with columns: Player Name, Team, Role, Avg Fantasy Points, Matches.
-- Keep analysis to 2–3 insights tied to numbers in `rows`.
-"""
-
-DEFAULT_MATCH_TPL = """\
-**If the question is about matches, do follow below instructions. You can ignore other formatting instructions**:
-- Use a markdown table with columns: Date, Match Title, Team Batting First, Score(Batting First), Chasing Team, Score(Chasing Team), Result.
-- Add 2–3 insights (e.g., batting-friendly vs bowling-friendly) grounded in `rows`.
-"""
-
-DEFULT_VENUE_TPL = """\
-**If the question is from venue, do follow below instructions. You can ignore other formatting instructions**:
-    - Nature: This is expected to be a [e.g., balanced, batting-friendly, bowling-friendly] wicket.
-    - Recent Trends: In the last [X] T20 matches here, the average first innings score has been [Y]. Teams batting [first/second] have won [Z]% of the matches.
-    - Key takeaway: Expect [e.g., a high-scoring encounter where batsmen will dominate / bowlers, especially spinners, to play a crucial role].
-"""
-
-
 if "answering_templates" not in st.session_state:
-    st.session_state.answering_templates = [
-        {"id": str(uuid4()), "name": "For Player Queries", "enabled": True,  "text": DEFAULT_PLAYER_TPL},
-        {"id": str(uuid4()), "name": "For Match Queries",  "enabled": True,  "text": DEFAULT_MATCH_TPL},
-        {"id": str(uuid4()), "name": "For Venue Queries",  "enabled": True,  "text": DEFULT_VENUE_TPL},
-    ]
+    # Start empty; you can add any generic templates from the UI
+    st.session_state.answering_templates = []
 
 
 # --- 1.  callback for “thinking” pane ----------------------------
@@ -178,8 +128,8 @@ def get_cb(container):
     return cb
 
 # --- 2.  Page styling (copied from your old frontend) -------------
-st.set_page_config(page_title="Perfect Lineup Chatbot 🏏",
-                   page_icon="🏏", layout="wide")
+st.set_page_config(page_title="Data QA Chat", page_icon="🧠", layout="wide")
+
 st.markdown(Path("frontend.css").read_text() if Path("frontend.css").exists() else """<style>
 .chat-container{background:#fff;border-radius:8px;padding:10px;margin-bottom:20px;min-height:60vh;overflow-y:auto}
 .stChatMessage{margin-bottom:15px}.stChatMessage>div{border-radius:10px;padding:10px;max-width:80%}
@@ -204,9 +154,8 @@ if "prompt_sections" not in st.session_state:
 #     st.session_state.mem_agent = MemoryAgent(k=5)
 
 # --- 4.  Header ---------------------------------------------------
-st.markdown('<h1 class="title">  Perfect Lineup Chatbot 🏏</h1>',  unsafe_allow_html=True)
-st.markdown('<h3 class="title">Australia VS South Africa - South Africa tour of Australia </h4>',  unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Your ultimate fantasy-cricket analyst 🔥</p>', unsafe_allow_html=True)
+st.markdown('<h1 class="title">Data QA Chat</h1>', unsafe_allow_html=True)
+
 if st.button("Clear Chat"): st.session_state.chat = []; st.rerun()
 
 chat_tab, prompt_tab = st.tabs(["Chat", "Prompt Settings"])
@@ -216,7 +165,7 @@ with chat_tab:
         with st.chat_message(role):
             st.markdown(msg)
 
-    q = st.chat_input("Ask about players, venues, fantasy picks…")
+    q = st.chat_input("Ask about your datasets…")
 
     if q:
         st.session_state.chat.append(("user", q))

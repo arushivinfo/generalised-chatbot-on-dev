@@ -3,32 +3,26 @@ from typing import Dict, List, Optional
 
 # ---------- Core rules text ----------
 
-def render_core_rules(core_map: Dict[str, str]) -> str:
+# ---------- Core rules text (role-less) ----------
+def render_core_rules(collections: List[str] | None = None) -> str:
     """
-    core_map: {'matches': <coll>, 'players': <coll>, 'venues': <coll>, 'upcoming_match': <coll>}
-    Safe if some roles are missing.
+    Role-less guidance. Optionally lists a few collection names to anchor the model.
     """
-    V = core_map.get("venues", "<venues_collection>")
-    M = core_map.get("matches", "<matches_collection>")
-    P = core_map.get("players", "<players_collection>")
-    U = core_map.get("upcoming_match", "<upcoming_match_collection>")
-
-    return f"""
-**Core rule for venue based questions:**  
-    Always include below collections when the user asks about a venue, along with the `{V}` collection:
-    - `{M}` (to provide match history at that venue)
-    - `{P}` (to provide player performance at that venue)
-
-**Core rule for prediction questions**  
-Prediction data alone often lacks full context (e.g. past performance, venue history, player roles). Therefore, whenever the user 
-requests any prediction‐related information, you **must** include `{U}` **plus** at least one of the other 
-three collections—`{M}`, `{P}`, or `{V}`. This ensures you combine both the 
-latest predictive insights and the relevant historical or contextual data to craft a comprehensive answer.
-""".strip()
+    examples = ""
+    if collections:
+        names = ", ".join(collections[:3])
+        examples = f"\n- Available collections include: {names} (and more configured in Admin)."
+    return (
+        "**Guidance for answering**\n"
+        "- Use the smallest set of collections needed; prefer structured filters (field:value, ranges).\n"
+        "- Always set sort and limit explicitly when the intent implies ordering or top-K.\n"
+        "- If a question mixes “current status/forecast” with history, query both a ‘latest’ style collection and at least one historical/context collection."
+        + examples
+    )
 
 
-def render_match_context(user_match_context: Optional[str]) -> str:
-    """Optional user-provided 'extra add-up'. Return empty string if not provided."""
+def render_match_context(user_match_context):
+    # Treat as generic admin-provided “Extra Context”
     return (user_match_context or "").strip()
 
 
@@ -52,35 +46,6 @@ def _format_fields_with_options(fields: List[dict], options_max: int) -> List[st
             base += f" (options: {preview}{suffix})"
         out.append(base)
     return out
-
-
-def render_schema_section_roles(
-    core_map: Dict[str, str],
-    searchable_fields: Dict[str, List[dict]],
-    role_descriptions: Dict[str, str],
-    options_max: int = 20,
-) -> str:
-    """
-    Small schema section for the four core roles only.
-    - Bullets show the **actual collection name**.
-    - 'upcoming_match' gets the single-row note.
-    """
-    lines: List[str] = []
-    for role in ["matches", "players", "venues", "upcoming_match"]:
-        coll = core_map.get(role)
-        if not coll:
-            continue
-        desc = role_descriptions.get(role, "")
-        field_lines = _format_fields_with_options(searchable_fields.get(coll, []), options_max)
-        if role == "upcoming_match":
-            lines.append(
-                f"• {coll} [{desc}] →\n"
-                f"  - **single-row** collection for the configured fixture.\n"
-                f"  - You may leave \"filters\", \"sort\", and \"limit\" empty to retrieve the full object."
-            )
-        else:
-            lines.append(f"• {coll} [{desc}] → " + ("; ".join(field_lines) if field_lines else "(no fields)"))
-    return "\n".join(lines)
 
 
 def render_schema_section_all(

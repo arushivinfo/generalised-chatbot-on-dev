@@ -1,37 +1,28 @@
 # schema_registry.py
 import json, os
-from typing import Dict, List, Literal
+from typing import Dict, List
 
 REG_PATH = os.getenv("SCHEMA_REGISTRY_PATH", "schema_registry.json")
 
-# role is used ONLY for core rules text; searching works for all collections
-CoreRole = Literal["matches", "players", "venues", "upcoming_match", "other"]
-
 DEFAULT = {
-  "options_max": 20,  # default cap for categories shown in prompts (editable in Admin UI)
+  "options_max": 20,
   "collections": {
-    # seed with your four; you can add more from admin page
-    "matches_filtered_90696": {
-      "role": "matches", "description": "historical matches", "fields": []
-    },
-    "players_filtered_90696": {
-      "role": "players", "description": "squad & match-wise player data", "fields": []
-    },
-    "venues_filtered_90696": {
-      "role": "venues", "description": "venue & ground stats", "fields": []
-    },
-    "upcoming_match_90696_summary": {
-      "role": "upcoming_match", "description": "upcoming match + prediction", "fields": []
-    }
+    # Start empty; populate via Admin → Collections
   },
-
-  "core_rules": {
-    "mode": "auto",          
-    "custom_text": ""        
-    },
-  "user_match_context": ""   # optional admin-entered “extra add-up” context
-
+  "core_rules": { "mode": "auto", "custom_text": "" },
+  # Kept for backward compatibility with UI; label it “Extra Context”
+  "user_match_context": ""
 }
+
+def get_connection_config(reg: dict | None = None):
+    reg = reg or load_registry()
+    return reg.get("connection", {})
+
+def set_connection_config(uri: str, db: str):
+    reg = load_registry()
+    reg["connection"] = {"mongo_uri": uri, "mongo_db": db}
+    save_registry(reg)
+    return reg
 
 def load_registry() -> Dict:  # {options_max:int, collections:{<coll_name>:{role,description,fields}}}
     if not os.path.exists(REG_PATH):
@@ -46,9 +37,9 @@ def save_registry(reg: Dict) -> None:
 def list_collections() -> Dict[str, Dict]:
     return load_registry()["collections"]
 
-def upsert_collection(coll_name: str, role: CoreRole, description: str, fields: List[Dict]) -> Dict:
+def upsert_collection(coll_name: str, description: str, fields: List[Dict]) -> Dict:
     reg = load_registry()
-    reg["collections"][coll_name] = {"role": role, "description": description, "fields": fields}
+    reg["collections"][coll_name] = {"description": description, "fields": fields}
     save_registry(reg); return reg
 
 def delete_collection(coll_name: str) -> Dict:
@@ -63,23 +54,16 @@ def get_all_fields(reg: Dict | None = None) -> Dict[str, List[Dict]]:
     reg = reg or load_registry()
     return {coll: meta.get("fields", []) for coll, meta in reg["collections"].items()}
 
-def get_core_coll_map(reg: Dict | None = None) -> Dict[str, str]:
-    """
-    Returns map for core rules: {'matches': <coll>, 'players': <coll>, 'venues': <coll>, 'upcoming_match': <coll>}
-    Missing roles are simply omitted.
-    """
-    reg = reg or load_registry()
-    out: Dict[str, str] = {}
-    for coll, meta in reg["collections"].items():
-        role = meta.get("role", "other")
-        if role in ("matches", "players", "venues", "upcoming_match") and role not in out:
-            out[role] = coll
-    return out
+
 
 def get_descriptions(reg: Dict | None = None) -> Dict[str, str]:
     reg = reg or load_registry()
     return {coll: meta.get("description","") for coll, meta in reg["collections"].items()}
 
+def get_collection_names(reg: Dict | None = None) -> List[str]:
+    """List of collection names configured in Admin."""
+    reg = reg or load_registry()
+    return list(reg.get("collections", {}).keys())
 
 def get_core_rules_config(reg: Dict | None = None) -> Dict:
     reg = reg or load_registry()

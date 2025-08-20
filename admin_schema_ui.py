@@ -1,9 +1,11 @@
 # admin_schema_ui.py
 import os, json, pandas as pd, streamlit as st
+from datetime import date, datetime, time
 from pymongo import MongoClient
 from schema_registry import (
     load_registry, save_registry, list_collections, upsert_collection, delete_collection,
-    set_options_max
+    set_options_max,
+    get_connection_config, set_connection_config,
 )
 from core_rules import render_schema_section_all
 
@@ -13,13 +15,79 @@ import numpy as np
 import json
 from langchain_openai import ChatOpenAI
 
+import os
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+
+def _to_safe_text(x):
+    """Coerce any value to a displayable string without crashing on bytes/NaN."""
+    # Treat missing values early
+    try:
+        if pd.isna(x):
+            return ""
+    except Exception:
+        pass
+
+    # Bytes → try utf-8, then cp1252, then latin-1, then replacement
+    if isinstance(x, (bytes, bytearray)):
+        for enc in ("utf-8", "cp1252", "latin-1"):
+            try:
+                return x.decode(enc)
+            except UnicodeDecodeError:
+                continue
+        return x.decode("utf-8", "replace")
+
+    # Pandas/NumPy types
+    if isinstance(x, (np.integer,)):
+        return str(int(x))
+    if isinstance(x, (np.floating,)):
+        f = float(x)
+        if np.isnan(f) or np.isinf(f):
+            return ""
+        return str(f)
+    if isinstance(x, (datetime, date, time, pd.Timestamp)):
+        return x.isoformat()
+
+    # Fallback
+    return str(x)
+
+def _json_default(o):
+    # pandas / numpy / datetimes → JSON-safe
+    if isinstance(o, (datetime, date, time)):
+        return o.isoformat()
+    if isinstance(o, pd.Timestamp):
+        return o.isoformat()
+    if isinstance(o, np.integer):
+        return int(o)
+    if isinstance(o, np.floating):
+        f = float(o)
+        if np.isnan(f) or np.isinf(f):
+            return None
+        return f
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    # pandas NA / NaT etc.
+    try:
+        if pd.isna(o):
+            return None
+    except Exception:
+        pass
+    # last resort
+    return str(o)
+
+load_dotenv()  # loads OPENAI_API_KEY from .env if present
+
+def get_llm():
+    key = os.getenv("OPENAI_API_KEY")
+    if not key:
+        return None
+    return ChatOpenAI(model="gpt-4.1-mini", temperature=0, api_key=key)
+
 def generate_ai_descriptions(df: pd.DataFrame, sample_size: int = 3) -> dict:
     """Ask AI to describe each column based on a sample of the data."""
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    llm = get_llm()
 
     # ---- 1) Take sample and convert all values to JSON-safe types ----
-    sample_df = df.head(sample_size).copy()
-
     def safe_value(val):
         if isinstance(val, (pd.Timestamp, np.datetime64)):
             return str(val)
@@ -32,17 +100,20 @@ def generate_ai_descriptions(df: pd.DataFrame, sample_size: int = 3) -> dict:
             pass
         return val
 
-    sample_df = sample_df.applymap(safe_value)
-    sample_data = sample_df.to_dict(orient="records")
+    # Build a small, JSON-safe sample for the prompt
+    n = min(sample_size, len(df)) if len(df) else 0
+    sample_df = df.sample(n, random_state=0) if n > 0 else df.head(0)
+    sample_records = sample_df.to_dict(orient="records")
+    sample_json = json.dumps(sample_records, default=_json_default, indent=2)
 
     # ---- 2) Build strict JSON-only prompt ----
     prompt = f"""
-You are helping define a database schema for a cricket/fantasy sports analytics system.
+You are helping define a database schema for a **generic analytics system**.
 
 Here is a sample of the dataset:
-{json.dumps(sample_data, indent=2)}
+{sample_json}
 
-For each column in the dataset, provide a short but precise description of what it represents.
+For each column in the dataset, provide a short, precise description.
 
 OUTPUT INSTRUCTIONS:
 - Respond ONLY with valid JSON.
@@ -105,7 +176,8 @@ def heuristic_schema(df: pd.DataFrame, options_max: int = 20, max_opt_len: int =
         opts = []
 
         if t in ("string", "bool"):  # candidates for categorical
-            uniq = df[col].dropna().astype(str).str.strip().unique()
+            s = df[col].dropna().map(_to_safe_text).str.strip()
+            uniq = s[s != ""].unique()
             uniq = [u for u in uniq if len(u) <= max_opt_len]
             if 1 < len(uniq) <= options_max:
                 opts = sorted(map(str, uniq))
@@ -125,6 +197,35 @@ ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
 if ADMIN_TOKEN:
     if st.text_input("Admin token", type="password") != ADMIN_TOKEN:
         st.stop()
+
+# ─────────────────────────────────────────────────────────────
+# Connection (MongoDB) — saved in schema_registry.json
+# ─────────────────────────────────────────────────────────────
+st.subheader("Database Connection")
+
+cfg = get_connection_config(load_registry())
+default_uri = cfg.get("mongo_uri", "mongodb://127.0.0.1:27017")
+default_db  = cfg.get("mongo_db",  "test")
+
+c1, c2 = st.columns([3, 1])
+with c1:
+    uri_input = st.text_input("Mongo URI", value=default_uri, placeholder="mongodb://host:27017")
+    db_input  = st.text_input("Database Name", value=default_db, placeholder="sample_mflix")
+with c2:
+    st.markdown(" ")
+    st.markdown(" ")
+    if st.button("Save Connection", type="primary"):
+        if not uri_input.strip() or not db_input.strip():
+            st.error("Please provide both Mongo URI and Database Name.")
+        else:
+            set_connection_config(uri_input, db_input)
+            st.success(f"Saved! mongo_db = **{db_input.strip()}**")
+            st.toast("Connection settings updated.", icon="✅")
+
+# Show the effective connection (for sanity)
+st.code(json.dumps(get_connection_config(load_registry()), indent=2))
+st.divider()
+
 
 st.title("Admin • Collections & Schemas")
 tab_schema, tab_rules = st.tabs(["Collections & Schemas", "Core Rules & Prompt"])
@@ -157,7 +258,6 @@ with tab_schema:
         st.success("Saved options cap")
 
     st.header("Add / Edit Collection")
-    role = st.selectbox("Role (for core rules)", ["matches", "players", "venues", "upcoming_match", "other"])
     coll_name = st.text_input("Collection name (exact Mongo name)", "")
     coll_desc = st.text_input("Description (short)","")
 
@@ -315,17 +415,16 @@ with tab_schema:
             else:
                 reg = load_registry()
                 reg["collections"][coll_name] = {
-                    "role": role,
                     "description": coll_desc,
                     "fields": st.session_state.schema_fields
                 }
                 save_registry(reg)
-                st.success(f"Saved schema for {coll_name} (role: {role})")
+                st.success(f"Saved schema for {coll_name}")
 
 
     st.header("Existing Collections")
     colls = list_collections()
-    st.write({k: {"role": v["role"], "fields": len(v.get("fields",[]))} for k,v in colls.items()})
+    st.write({k: {"fields": len(v.get("fields",[]))} for k,v in colls.items()})
     del_name = st.selectbox("Delete collection", ["(none)"] + list(colls.keys()))
     if del_name != "(none)" and st.button("Delete"):
         delete_collection(del_name); st.success("Deleted")
@@ -343,7 +442,7 @@ with tab_schema:
 
 from schema_registry import (
     get_core_rules_config, set_core_rules_config,
-    get_all_fields, get_descriptions, get_core_coll_map,
+    get_all_fields, get_descriptions, get_collection_names,
     get_user_match_context, set_user_match_context, load_registry
 )
 from core_rules import render_core_rules, render_schema_section_all
@@ -369,7 +468,7 @@ with tab_rules:
 
     # 2) Optional: admin “extra add-up” match context
     st.divider()
-    st.subheader("Optional: Extra Match Context")
+    st.subheader("Optional: Extra Context")
     cur_ctx = get_user_match_context()
     new_ctx = st.text_area("Extra context (shown as a separate system message)", value=cur_ctx, height=140)
     if st.button("Save Extra Context"):
@@ -380,8 +479,8 @@ with tab_rules:
     st.divider()
     st.subheader("Effective Rules Preview")
     reg = load_registry()
-    core_map = get_core_coll_map(reg)
-    auto_rules = render_core_rules(core_map)
+    coll_names = get_collection_names(reg)
+    auto_rules = render_core_rules(coll_names)
     if mode == "override" and custom.strip():
         effective = custom.strip()
     elif mode == "append" and custom.strip():

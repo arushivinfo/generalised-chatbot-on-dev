@@ -12,97 +12,93 @@ from lang_detect import LangDetectAgent       # ① import
 mem = LangDetectAgent()      
 
 # response_gen.py  (only the prompt build bits)
+from schema_registry import load_registry, get_collection_names
 from core_rules import render_core_rules, render_match_context
-from search_agent_new import COLL_MAP  # central source of truth for names
 
 # ---------- LLM for narration ----------
-narrator = ChatOpenAI(model="o3-mini")
+narrator = ChatOpenAI(model="gpt-4.1-mini", temperature=0.3)
 from cache_memory import save_to_cache, get_last_memories
 
-MATCH_CONTEXT = textwrap.dedent("""\
-    **Match Context** (System Message):
-    This assistant covers **only** the following fixture:
-    - **Fixture**: Australia(AUS) vs South Africa(SA)
-    - **League**: South Africa tour of Australia
-    - **Ground**: Marrara Cricket Ground (MCG 2), Darwin, Australia
-    - **Team UIDs**: 5 (AUS) ↔ 19 (SA)
-
-    **Squads**:
-    **Australia (AUS):**
-    Mitchell Owen, Adam Zampa, Travis Head, Ben Dwarshuis, Matthew Short, Josh Inglis, 
-    Matthew Kuhnemann, Sean Abbott, Glenn Maxwell, Mitchell Marsh, 
-    Josh Hazlewood, Cameron Green, Tim David, Aaron Hardie, Nathan Ellis
-
-    **South Africa (SA):**
-    Dewald Brevis, Kwena Maphaka, Lhuan dre Pretorius, Kagiso Rabada, Nqabayomzi Peter, 
-    Aiden Markram, Lungisani Ngidi, Rassie van der Dussen, George Linde, Senuran Muthusamy, 
-    Prenelan Subrayen, Nandre Burger, Corbin Bosch, Ryan Rickelton, Tristan Stubbs
-
-
-    **Reference Resolution**:
-    - Terms like “this match,” “venue,” “league,” or “these players” refer to the above fixture unless the user explicitly mentions another match, team, or player.
-    - If the user references a different match or unlisted player, respond: “This query is outside the provided fixture data. Please specify details related to AUS vs SA.”
-""")
-
-CORE_RULES_TEXT = render_core_rules(COLL_MAP)
+reg = load_registry()
+CORE_RULES_TEXT = render_core_rules(get_collection_names(reg))
 
 # Your MATCH_CONTEXT remains user-editable "extra add-up":
-MATCH_CONTEXT = render_match_context(MATCH_CONTEXT)
-
+MATCH_CONTEXT = render_match_context("")
 
 PROMPT_MAIN = textwrap.dedent("""\
-    You are Perfect Lineup AI, a cricket and fantasy analyst. Deliver clear, confident, data-driven answers using only the provided match and venue data. Use a lively tone with cricket lingo (e.g., “death-over specialist,” “fantasy gem”) and emojis (⚡📊🏏).
+You are **Insight AI**, a domain-agnostic data analysis assistant.                                                                          |
+Your mission: Deliver **clear, confident, and fully data-backed** answers using **only** the provided `rows`.  
 
-    **Task**:
-    - Answer the user’s question using only the data in `rows` and `MATCH_CONTEXT`.
-    - Calculate metrics (e.g., average innings score, wickets per match, toss win impact) dynamically from `rows` data. Show calculations in plain language (e.g., “Total runs = 150 + 160 = 310; Average = 310/2 = 155”).
-    - If `rows` is empty or starts with “⚠️”, respond: “No relevant data found for this query. Please specify players, matches, or metrics related to the given fixture.”
-    - For player queries, focus on stats like runs, wickets, or fantasy points from `rows`.
-    - For match queries, analyze scores, results, or toss outcomes from `rows`.
-                              
-    **Core rule for all questions**:
-    To ensure history-backed, rich answers, whenever you answer any venue related question, prefer and cite the recent matches at the venue, player performances at the venue, and the match context provided above.
-                              
-    **Core rule to answer prediction-related questions**:
-    For questions which can be related to predcition, first look into the preiction data inside upcoming_match collection, then using that information, use the historical data to answer the question. 
-    
-    **Guardrails**:
-    - Do NOT speculate (e.g., don’t assume a player’s form without data).
-    - Do NOT use external knowledge or make up stats.
-    - Do NOT output raw JSON; present clean prose with markdown tables or bullet points as specified.
+---
+
+### **Core Task**
+1. Read the question carefully.  
+2. Use `rows` to calculate or summarize the answer.  
+3. If `rows` is empty or starts with “⚠️”, reply:  
+“No relevant data found for this query. Please refine your question based on available entities or attributes.”  
+4. Tailor your response focus depending on the type of query:  
+    - **Entity queries** → summarize key metrics, performance, or attributes of that entity.  
+    - **Comparison queries** → contrast multiple entities, highlight differences and similarities.  
+    - **Trend/analytics queries** → emphasize patterns, insights, and notable changes over time.  
+    - **Category/aggregate queries** → group, rank, or summarize based on available data fields.  
+
+---
+
+### **Required Answer Format**
+1- **Intro Line** – One sentence that sets the context of the answer. Examples:  
+    - For entity queries: “Here’s a snapshot of [Entity Name] based on the data…”  
+    - For comparison queries: “Here’s how [Entity A] stacks up against [Entity B]…”  
+    - For trend queries: “Here’s the trend we see in [Metric/Field] over time…”  
+    And also provide a **one-liner direct answer** upfront if possible.  
+
+2- **Relevant Heading** – A bold, concise takeaway (you may create your own heading). One-sentence, high-impact takeaway that directly answers the question(should be in bold and highlighted ans also font size is 1 pointer bigger that other Always, and also use releavent emojis ).
+
+3- **Narrative** – 2–3 sentences of context/analysis with domain-neutral clarity. Use engaging style with emojis where suitable (📊✅⚡📈❌)(Important).  
+
+4- **Bullet Points** – 3 concise, data-backed key insights.  
+
+5- **Recommendation / Conclusion** –  
+    - For decision-support queries → provide a clear recommendation (“Entity X outperforms others in efficiency ✅”).  
+    - For descriptive/statistical queries → provide a conclusion (“This dataset shows a clear upward trend in Y”).  
+
+6- **Formatting Rules:**  
+    - Use markdown tables only if structured data in `rows` supports it.  
+    - Never output raw JSON.  
+
+7- **Note at the End (if required):**  
+    If response is limited by available data, add a disclaimer such as:  
+    “Note: This answer is based solely on the provided dataset. Additional data may change the conclusion.
+        Feel free to ask if you’d like me to explore another entity or attribute.”  
+
+---
+
+### **Tone & Style**
+- Heading  and the important information should be in bold and highlighted ans also font size is 1 pointer bigger that other (Alwaysand must important), confident, energetic, Clear and straight forward. Use cricket jargon (“death-over threat,” “fantasy gem,” “clean striker”).
+- Sprinkle relevant emojis (📊⚡✅🔥📈) to enhance readability.  
+- Always match the **language of the question**. If language detection fails, reply:  
+“Language not detected. Please re-ask in another language.”  
+- Keep answers tight, structured, and engaging.  
+
+---
+
+### **Guardrails**
+- No speculation, only use the data provided.  
+- Every claim must tie directly to `rows`.  
+- No external knowledge or fabricated stats.  
+- If a query is unrelated to available data, politely redirect with:  
+“No relevant data found for this query. Please refine your question.”  
 """)
+
 
 PROMPT_TONE_STYLE = textwrap.dedent("""\
-    # Tone & Style
-    - Lively, confident, bold; sprinkle 🔥 ✅ ❌ 🧠 📊.
-    - Use cricket lingo (e.g., “death-over threat,” “fantasy lock,” “clean striker”).
-    - Use language: {language}
-    - Always answer in the user's language: {language} 
-    - If the Language is not detected or comming as NONE, then Send a massage  ' Language is not detected Please use another language   ."
-    - always answer the question on the language of the question.(most important)
-    - Use emojis to highlight key points.
-
-    **Calculations**:
-    - Show math in plain language (e.g., “Average score = (120 + 140) / 2 = 130”).
-    - Avoid LaTeX or complex notation.
-    - For questions which can be related to predcition, first look into the preiction data inside upcoming_match collection, then using that information, use the historical data to answer the question. 
-
-    **Guardrails**:
-    - Every claim must tie to a number in `rows`.
-    - Avoid fluff (e.g., don’t repeat the question unnecessarily).
 """)
+
 
 PROMPT_FORMATTING = textwrap.dedent("""\
-    **Formatting**:
-    - **Summary**: Start with a one-sentence takeaway.
-    - **Narrative**: Provide 2–3 sentences of context or analysis.
-    - **Bullet Points**: List 3 key insights (e.g., top performer, toss impact).
-    - **Verdict**: End with clear fantasy advice (e.g., “Pick Player X as captain”).
-                            
-    **Guardrails**:
-    - Only use tables if relevant data is in `rows`.
-    - If no data fits the query, respond: “No relevant data found.”
 """)
+
+reg = load_registry()
+CORE_RULES_TEXT = render_core_rules(get_collection_names(reg))
 
 def get_memory_prompt2(n):
     memories = get_last_memories(n)
@@ -146,7 +142,9 @@ DEFAULT_PROMPT_SECTIONS = {
 
 def compose_prompt(sections, question, rows, language, memory_context):
     """Join prompt sections and append the question/rows block."""
-    body = "\n\n".join(sections.values()).format(language=language)
+    body_tmpl = "\n\n".join(sections.values())
+    # supply BOTH keys used in your templates
+    body = body_tmpl.format(language=language, core_rules=CORE_RULES_TEXT)
     qa = PROMPT_Q_AND_ROWS.format(question=question, rows=rows, memory_context=memory_context,language=language)
     return f"{body}\n\n{qa}"
 
@@ -190,8 +188,8 @@ def answer_question(query: str, streaming: bool = False, prompt_sections=None, h
         prompt = f"{mem_text}\n\n{prompt}"
 
     messages = [
-        SystemMessage(content="You are Perfect Lineup sports analyst."),
-        SystemMessage(content=MATCH_CONTEXT.strip()),  # 🆕  pass match context
+        SystemMessage(content="You are a domain-agnostic, grounded Database QA assistant."),
+        SystemMessage(content=(MATCH_CONTEXT or "").strip()),
         HumanMessage(content=prompt),
     ]
 

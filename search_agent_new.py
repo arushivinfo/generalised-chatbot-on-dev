@@ -1,5 +1,6 @@
 # search_agent.py
 import os, json
+import re
 from pathlib import Path
 from datetime import datetime as _dt
 from typing import TypedDict, List, Optional, Dict, Any
@@ -22,16 +23,47 @@ from langchain_core.callbacks import BaseCallbackHandler
 from difflib import get_close_matches
 # search_agent_new.py  (only showing relevant edits)
 from core_rules import render_core_rules, render_match_context, render_schema_section_all
-from schema_registry import load_registry, get_all_fields, get_core_coll_map, get_descriptions
+from schema_registry import load_registry, get_all_fields, get_collection_names, get_descriptions
 
+def _extract_json_spec(text: str) -> dict:
+    """
+    Pull a JSON object out of LLM output that may include
+    code fences, nested fences, or extra prose.
+    """
+    if not isinstance(text, str):
+        raise ValueError("Spec text is not a string")
+
+    # 1) Prefer the last ```json ... ``` fenced block
+    blocks = re.findall(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+    for blk in reversed(blocks):
+        try:
+            return json.loads(blk)
+        except Exception:
+            pass
+
+    # 2) Fallback: take the largest {...} span
+    start = text.find("{")
+    end   = text.rfind("}")
+    if 0 <= start < end:
+        candidate = text[start:end+1]
+        try:
+            return json.loads(candidate)
+        except Exception:
+            pass
+
+    # 3) Last attempt: strip leading/trailing junk lines and retry
+    cleaned = text.strip().strip("`").strip()
+    try:
+        return json.loads(cleaned)
+    except Exception as e:
+        raise ValueError(f"could not parse JSON spec: {e}")
+    
 def _load_schema_live():
     reg = load_registry()
     all_fields   = get_all_fields(reg)
-    core_map     = get_core_coll_map(reg)
     descriptions = get_descriptions(reg)
     options_max  = reg.get("options_max", 20)
-    return all_fields, core_map, descriptions, options_max
-
+    return all_fields, descriptions, options_max
 
 class PrintIntermediateStepsHandler(BaseCallbackHandler):
     def on_chain_start(self, serialized, inputs, **kwargs):
@@ -80,148 +112,36 @@ def _apply_sort(cursor_or_pipeline, sort_clause):
 # 0. Environment & DB connection
 # ────────────────────────────────
 
-MATCH_CONTEXT = """
-### MATCH CONTEXT – KEEP AS SEPARATE SYSTEM MESSAGE ###
-This assistant covers **one fixture only**:
-
-• Fixture  : Australia(Home Team) vs South Africa(Away Team)
-• League   : South Africa tour of Australia
-• Ground   : Marrara Cricket Ground (MCG 2), Darwin, Australia
-• Team UIDs: 5↔ 19 (either side can be home/away)
-
-Full squad (25):
-**Australia (AUS):**
-Mitchell Owen, Adam Zampa, Travis Head, Ben Dwarshuis, Matthew Short, Josh Inglis, Matthew Kuhnemann, 
-Sean Abbott, Glenn Maxwell, Mitchell Marsh, Josh Hazlewood, Cameron Green, Tim David, Aaron Hardie,Nathan Ellis
-
-**South Africa (SA):**
-Dewald Brevis, Kwena Maphaka, Lhuan dre Pretorius, Kagiso Rabada, Nqabayomzi Peter, Aiden Markram, Lungisani Ngidi,
-Rassie van der Dussen, George Linde, Senuran Muthusamy, Prenelan Subrayen, Nandre Burger, Corbin Bosch, Ryan Rickelton, Tristan Stubbs
-
-
-🛈 If the user says “this match / venue / league / team / these players”, resolve the reference to **this fixture** unless they clearly mention something else.
-"""
+MATCH_CONTEXT = ""
 
 LOG_PATH = Path("last_search_run.json")
-load_dotenv()
 
-MONGO_URI = "mongodb://ec2-35-154-176-120.ap-south-1.compute.amazonaws.com:27017/"
-DB_NAME    = "sports_feed_stg"
-client     = MongoClient(MONGO_URI)
+from schema_registry import load_registry, get_connection_config
+load_dotenv()
+# Prefer Admin UI config first; fall back to env; finally to hardcoded defaults
+_cfg = get_connection_config(load_registry()) or {}
+MONGO_URI = _cfg.get("mongo_uri")
+DB_NAME   = _cfg.get("mongo_db") 
+
+client = MongoClient(MONGO_URI); db = client[DB_NAME]
+
 db         = client[DB_NAME]
 
-# Fetch all unique league names from the DB for canonicalization
-LEAGUE_NAMES = db.matches_filtered_90696.distinct("league_name")
-
-# ────────────────────────────────
-# 1. Schema metadata
-# ────────────────────────────────
-
-
-# SEARCHABLE_FIELDS: Dict[str, List[Dict[str, Any]]] = {
-#     "matches_filtered_90696": [
-#         {"name": "league_name",           "type": "string", "operations": ["regex"]},
-#         {"name": "league_name_abbr",      "type": "string", "operations": ["regex"]},
-#         # {"name": "match_format",          "type": "string", "operations": ["regex"]},       
-#         # {"name": "full_match_title",      "type": "string", "operations": ["regex"]},
-
-#         # {"name": "title",                 "type": "string", "operations": ["regex"]},
-#         {"name": "venue",                 "type": "string", "operations": ["regex", "sort"]},
-#         {"name": "city",                  "type": "string", "operations": ["regex"]},
-#         {"name": "scheduled_date",        "type": "date",   "operations": ["range", "sort"]},
-#         {"name": "bat_first_team_score",  "type": "int",    "operations": ["range", "sort"]},
-#         {"name": "bat_second_team_score", "type": "string", "operations": ["regex"]},
-#         {"name": "players",               "type": "array",  "operations": ["keyword"]},
-
-#         {"name": "away_display_team_name",    "type": "string", "operations": ["regex"]},
-#         {"name": "home_display_team_name",    "type": "string", "operations": ["regex"]},
-#         # {"name": "bat_first_team_name",       "type": "string", "operations": ["regex"]},
-#         # {"name": "bat_second_team_name",      "type": "string", "operations": ["regex"]},
-#         {"name": "winning_team_name",         "type": "string", "operations": ["regex"]},
-#     ],
-
-#     # "matches_filtered_90696": [
-#     #     {"name": "league_name",          "type": "string", "operations": ["regex"]},
-#     #     {"name": "title",                "type": "string", "operations": ["regex"]},
-#     #     {"name": "venue",                "type": "string", "operations": ["regex", "sort"]},
-#     #     {"name": "city",                 "type": "string", "operations": ["regex"]},
-#     #     {"name": "scheduled_date",       "type": "date",   "operations": ["range", "sort"]},
-#     #     {"name": "bat_first_team_score", "type": "int",    "operations": ["range", "sort"]},
-#     #     {"name": "players",              "type": "array",  "operations": ["keyword"]},
-#     # ],
-#     "players_filtered_90696": [
-#         {"name": "player_name",          "type": "string", "operations": ["regex"]},
-#         {"name": "team_name",            "type": "string", "operations": ["regex"]},
-#         {"name": "position",             "type": "string", "operations": ["regex", "keyword"], "options": ["Batsman", "Bowler", "All-rounder", "Wicketkeeper"]},
-#         # {"name": "league_name",          "type": "string", "operations": ["regex"]},
-#         # {"name": "match_title",          "type": "string", "operations": ["regex"]},
-#         {"name": "venue",                "type": "string", "operations": ["regex", "sort"]},
-#         {"name": "fantasy_points",       "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "runs_scored",          "type": "int",    "operations": ["range", "sort"]},
-#         {"name": "wickets",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "overs_bowled",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "Strike Rate",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "batting_dots",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "batting_fours",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "batting_sixes",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "bowling_wides",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "bowling_noballs",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "bowling_economy",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "bowling_order",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "bowling_dots",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "catch",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "run_out",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "run_out_throw",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "run_out_catch",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "power_wickets",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "power_overs",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "death_wickets",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "death_overs",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "selected_percentage",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "captain_selection_percentage",         "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "vice_captain_selection_percentage",         "type": "float",  "operations": ["range", "sort"]},
-
-#         {"name": "scheduled_date",       "type": "date",   "operations": ["range", "sort"]},
-#     ],
-#     "venues_filtered_90696": [
-#         {"name": "venue",          "type": "string", "operations": ["regex","sort"]},
-#         {"name": "city",           "type": "string", "operations": ["regex"]},
-#         {"name": "country",        "type": "string", "operations": ["regex"]},
-#         {"name": "capacity",       "type": "int",    "operations": ["range", "sort"]},
-#         {"name": "run_per_over",   "type": "float",  "operations": ["range", "sort"]},
-#         {"name": "run_per_wicket", "type": "float",  "operations": ["range", "sort"]},
-#     ]
-# }
-
-# COLL_MAP = {
-#     "matches": "matches_filtered_90696",
-#     "players": "players_filtered_90696",
-#     "venues":  "venues_filtered_90696",
-#     "upcoming_match": "upcoming_match_90696_summary",
-# }
-
-# COLL_DESCRIPTIONS = {
-#     "matches":        "contains data of historical matches",
-#     "players":        "contains squad & historical player data",
-#     "venues":         "contains venue and ground stats",
-#     "upcoming_match": "contains upcoming match and prediction data",
-# }
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "o3-mini")
 
 _reg = load_registry()
-ALL_FIELDS      = get_all_fields(_reg)         # {coll_name: fields[]}
-print("-----All Fields------",ALL_FIELDS)
-CORE_COLL_MAP   = get_core_coll_map(_reg)      # {'matches': 'matches_filtered_90696', ...}
-DESCRIPTIONS    = get_descriptions(_reg)
-OPTIONS_MAX     = _reg.get("options_max", 20)
+ALL_FIELDS        = get_all_fields(_reg)        # {coll_name: [fields]}
+DESCRIPTIONS      = get_descriptions(_reg)      # {coll_name: description}
+COLLECTION_NAMES  = get_collection_names(_reg)  # ["orders", "customers", ...]
+OPTIONS_MAX       = _reg.get("options_max", 20)
 
 
 SCHEMA_SECTION  = render_schema_section_all(ALL_FIELDS, DESCRIPTIONS, OPTIONS_MAX)
 
-CORE_RULES_TEXT = render_core_rules(CORE_COLL_MAP)
-USER_MATCH_CONTEXT = render_match_context(MATCH_CONTEXT)  # Make MATCH_CONTEXT user-editable; can be empty
+CORE_RULES_TEXT = render_core_rules(COLLECTION_NAMES)
+USER_MATCH_CONTEXT = render_match_context("")  # Make MATCH_CONTEXT user-editable; can be empty
 
-# 🔧 Back-compat so older code keeps working:
-COLL_MAP = CORE_COLL_MAP           # {'matches': 'matches_filtered_…', ...}
+# 🔧 Back-compat so older code keeps working:        # {'matches': 'matches_filtered_…', ...}
 SEARCHABLE_FIELDS = ALL_FIELDS  
 
 # ────────────────────────────────
@@ -254,21 +174,19 @@ class MultiEntityQuery(BaseModel):
 
 def pick_collection(spec: dict) -> str | None:
     """
-    Return one of "matches", "players", "venues" if *all*
-    spec['filters'] fields and the sort field live in that schema.
+    Pick the collection whose schema contains ALL referenced fields (filters + sort).
+    Returns the actual collection name (or None).
     """
-    # 1) gather all filter fields
     fields = [filt["field"] for filt in spec.get("filters", [])]
-    # 2) include sort field too
     sf = next(iter(spec.get("sort", {})), None)
     if sf:
         fields.append(sf)
 
-    # 3) test each collection
-    for coll_key, schema_name in COLL_MAP.items():
-        schema_fields = {f["name"] for f in SEARCHABLE_FIELDS[schema_name]}
-        if set(fields).issubset(schema_fields):
-            return coll_key
+    wanted = set(fields)
+    for coll_name, metas in SEARCHABLE_FIELDS.items():  # SEARCHABLE_FIELDS == ALL_FIELDS
+        schema_fields = {m["name"] for m in metas}
+        if wanted.issubset(schema_fields):
+            return coll_name
     return None
 
 
@@ -290,10 +208,6 @@ def _normalise_filter(filt: dict, collection: str, invalid_fields: Optional[List
     if isinstance(out.get("value"), list) and len(out["value"]) == 1:
         out["value"] = out["value"][0]
 
-    # position is a scalar string in the DB → always use regex
-    if out["field"] == "position" and out["operation"] == "keyword":
-        out["operation"] = "regex"
-
     # Validate against SEARCHABLE_FIELDS options
     # for coll_fields in SEARCHABLE_FIELDS.values():
     #     for field_meta in coll_fields:
@@ -308,7 +222,7 @@ def _normalise_filter(filt: dict, collection: str, invalid_fields: Optional[List
 
     # 3) fuzzy match for allowed options
     for field_meta in SEARCHABLE_FIELDS.get(collection, []):
-        if field_meta["name"] == out["field"] and "options" in field_meta and field_meta["options"]:
+        if field_meta["name"] == out["field"] and "options" in field_meta:
             allowed = field_meta["options"]
             raw_val = out["value"]
 
@@ -337,82 +251,63 @@ def _safe(obj):
         return obj.isoformat()
     return json_util.default(obj)
 
+@tool("search_collection")
+def search_collection(collection: str, **q) -> List[Dict[str, Any]]:
+    """Search any configured collection by name."""
+    return _run_query(collection, q)
 
-def _run_query(collection_key: str, spec: Dict[str, Any]) -> QueryResult:
+TOOLS = [search_collection]
 
-    import json
-    print("\n===== FINAL SEARCH SPEC (BEFORE EXECUTING) =====")
-    print(json.dumps(spec, indent=2, ensure_ascii=False))
-    print("===============================================\n")
-
+def _run_query(collection: str, spec: Dict[str, Any]) -> QueryResult:
     try:
-        parsed      = EntityQuery(**spec)
-        coll_name   = COLL_MAP[collection_key]
+        parsed    = EntityQuery(**spec)
+        # Accept either a role key or a real collection name:
+        coll_name   = collection
         coll        = db[coll_name]
         mongo_filter = {}
         regular_filters = []
-        team_name_map = {}  # group team name values
+
+        # # ---------- filters ----------
+        # for f in parsed.filters:
+        #     fld_meta = next((m for m in SEARCHABLE_FIELDS[coll_name]
+        #                      if m["name"] == f.field), None)
+        #     if not fld_meta or f.operation not in fld_meta["operations"]:
+        #         return {"ok": False,
+        #                 "error": f"Invalid field/operation: {f.field},{f.operation}",
+        #                 "filter": mongo_filter}
+
+        #     if f.operation == "regex":
+        #         mongo_filter[f.field] = {"$regex": f.value, "$options": "i"}
+        #     elif f.operation == "keyword":
+        #         mongo_filter[f.field] = {"$elemMatch": {"$regex": f.value,
+        #                                                 "$options": "i"}}
+        #     elif f.operation == "range":
+        #         rng = ( {op: datetime.fromisoformat(v) if isinstance(v, str) else v
+        #                  for op, v in f.value.items()}
+        #                 if fld_meta["type"] == "date" else f.value )
+        #         mongo_filter[f.field] = rng
 
         # ---------- filters ----------
         for f in parsed.filters:
             fld_meta = next((m for m in SEARCHABLE_FIELDS[coll_name]
-                             if m["name"] == f.field), None)
+                            if m["name"] == f.field), None)
             if not fld_meta or f.operation not in fld_meta["operations"]:
                 return {"ok": False,
                         "error": f"Invalid field/operation: {f.field},{f.operation}",
                         "filter": mongo_filter}
 
+            # Regular filters
             if f.operation == "regex":
-                mongo_filter[f.field] = {"$regex": f.value, "$options": "i"}
+                regular_filters.append({f.field: {"$regex": f.value, "$options": "i"}})
             elif f.operation == "keyword":
-                mongo_filter[f.field] = {"$elemMatch": {"$regex": f.value,
-                                                        "$options": "i"}}
+                regular_filters.append({f.field: {"$elemMatch": {"$regex": f.value, "$options": "i"}}})
             elif f.operation == "range":
-                rng = ( {op: datetime.fromisoformat(v) if isinstance(v, str) else v
-                         for op, v in f.value.items()}
-                        if fld_meta["type"] == "date" else f.value )
-                mongo_filter[f.field] = rng
-
-        # --- normalize filters against schema ---
-        # normalized_filters = []
-        # invalid_fields = []
-        # for f in parsed.filters:
-        #     f_dict = _normalise_filter(
-        #         f.dict(),
-        #         collection=coll_name,     # ✅ force correct schema collection
-        #         invalid_fields=invalid_fields
-        #     )
-        #     if f_dict:
-        #         normalized_filters.append(EntityFilter(**f_dict))
-        # parsed.filters = normalized_filters
-
-        # print("\n[DEBUG] Normalized Filters:")
-        # for nf in normalized_filters:
-        #     print(nf.dict())
-        # print()
-
-        # # --- skip normalization, use filters as-is ---
-        # # parsed.filters = [EntityFilter(**f.dict()) for f in parsed.filters]
-
-        # for f in parsed.filters:
-        #     if f.operation == "regex":
-        #         mongo_filter[f.field] = {"$regex": f.value, "$options": "i"}
-        #     elif f.operation == "keyword":
-        #         mongo_filter[f.field] = {"$elemMatch": {"$regex": f.value, "$options": "i"}}
-        #     elif f.operation == "range":
-        #         mongo_filter[f.field] = f.value
-
-
-
-        # 🔁 Now build grouped $or filters for each unique team name
-        for team_val, fields in team_name_map.items():
-            or_group = []
-            if "home_display_team_name" in fields:
-                or_group.append({ "home_display_team_name": { "$regex": team_val, "$options": "i" } })
-            if "away_display_team_name" in fields:
-                or_group.append({ "away_display_team_name": { "$regex": team_val, "$options": "i" } })
-            if or_group:
-                regular_filters.append({ "$or": or_group })
+                rng = (
+                    {op: datetime.fromisoformat(v) if isinstance(v, str) else v
+                    for op, v in f.value.items()}
+                    if fld_meta["type"] == "date" else f.value
+                )
+                regular_filters.append({f.field: rng})
 
         # Final mongo_filter
         if len(regular_filters) == 1:
@@ -435,17 +330,9 @@ def _run_query(collection_key: str, spec: Dict[str, Any]) -> QueryResult:
         #     coll.find(mongo_filter, {"summary": 1, "_id": 0}),
         #     sort_clause
         # ).limit(parsed.limit)
-
-        # For normal collections we still project just "summary".
-        # For the one‑row upcoming_match_91776 we return the full doc.
-
-        # projection = (
-        #     {"_id": 0}                               # ← all keys
-        #     if coll_name == "upcoming_match_90696_summary"  # ← upcoming_match_91776
-        #     else {"summary": 1, "_id": 0}            # legacy behaviour
-        # )
-
-        projection = {"_id": 0} if collection_key == "upcoming_match" else {"summary": 1, "_id": 0}
+        
+        # Always return full objects (no summary-only projection)
+        projection = {"_id": 0}
 
         cursor = _apply_sort(
             coll.find(mongo_filter, projection),
@@ -463,32 +350,6 @@ def _run_query(collection_key: str, spec: Dict[str, Any]) -> QueryResult:
     except Exception as exc:
         return {"ok": False, "error": f"Query failed: {exc}",
                 "filter": mongo_filter}
-    
-
-# ────────────────────────────────
-# 4. Tools (collection-fixed)
-# ────────────────────────────────
-@tool("search_matches")
-def search_matches(**q) -> List[Dict[str, Any]]:
-    """Search the *matches* collection."""
-    return _run_query("matches", q)
-
-@tool("search_players")
-def search_players(**q) -> List[Dict[str, Any]]:
-    """Search the *players* collection."""
-    return _run_query("players", q)
-
-@tool("search_venues")
-def search_venues(**q) -> List[Dict[str, Any]]:
-    """Search the *venues* collection."""
-    return _run_query("venues", q)
-
-@tool("search_current_match")
-def search_current_match() -> List[Dict[str, Any]]:
-    """Search the current match."""
-    return _run_query("matches", q)
-
-TOOLS = [search_matches, search_players, search_venues]
 
 # ────────────────────────────────
 # 5. Prompt
@@ -496,66 +357,46 @@ TOOLS = [search_matches, search_players, search_venues]
 
 
 # List of strings with "name (type) [operations]" format for matches
-matches_fields = [
-    f"{f['name']} ({f['type']}) [{', '.join(f['operations'])}]"
-    for f in SEARCHABLE_FIELDS[COLL_MAP["matches"]]
-]
+# matches_fields = [
+#     f"{f['name']} ({f['type']}) [{', '.join(f['operations'])}]"
+#     for f in SEARCHABLE_FIELDS[COLL_MAP["matches"]]
+# ]
 
-players_fields = [
-    f"{f['name']} ({f['type']}) [{', '.join(f['operations'])}]"
-    for f in SEARCHABLE_FIELDS[COLL_MAP["players"]]
-]
+# players_fields = [
+#     f"{f['name']} ({f['type']}) [{', '.join(f['operations'])}]"
+#     for f in SEARCHABLE_FIELDS[COLL_MAP["players"]]
+# ]
 
-venues_fields = [
-    f"{f['name']} ({f['type']}) [{', '.join(f['operations'])}]"
-    for f in SEARCHABLE_FIELDS[COLL_MAP["venues"]]
-]
+# venues_fields = [
+#     f"{f['name']} ({f['type']}) [{', '.join(f['operations'])}]"
+#     for f in SEARCHABLE_FIELDS[COLL_MAP["venues"]]
+# ]
 
-def format_fields_with_options(fields: List[Dict[str, Any]]) -> List[str]:
-    formatted = []
-    for f in fields:
-        base = f"{f['name']} ({f['type']}) [{', '.join(f['operations'])}]"
-        if "options" in f:
-            opts = ", ".join(f["options"])
-            base += f" (options: {opts})"
-        formatted.append(base)
-    return formatted
+# def format_fields_with_options(fields: List[Dict[str, Any]]) -> List[str]:
+#     formatted = []
+#     for f in fields:
+#         base = f"{f['name']} ({f['type']}) [{', '.join(f['operations'])}]"
+#         if "options" in f:
+#             opts = ", ".join(f["options"])
+#             base += f" (options: {opts})"
+#         formatted.append(base)
+#     return formatted
 
-matches_fields = format_fields_with_options(SEARCHABLE_FIELDS[COLL_MAP["matches"]])
-players_fields = format_fields_with_options(SEARCHABLE_FIELDS[COLL_MAP["players"]])
-venues_fields = format_fields_with_options(SEARCHABLE_FIELDS[COLL_MAP["venues"]])
+# matches_fields = format_fields_with_options(SEARCHABLE_FIELDS[COLL_MAP["matches"]])
+# players_fields = format_fields_with_options(SEARCHABLE_FIELDS[COLL_MAP["players"]])
+# venues_fields = format_fields_with_options(SEARCHABLE_FIELDS[COLL_MAP["venues"]])
 
-print(matches_fields)
+# print(matches_fields)
 
-MATCH_CONTEXT = """
-### MATCH CONTEXT – KEEP AS SEPARATE SYSTEM MESSAGE ###
-This assistant covers **one fixture only**:
-
-• Fixture  : Australia(Home Team) vs South Africa(Away Team)
-• League   : South Africa tour of Australia
-• Ground   : Marrara Cricket Ground (MCG 2), Darwin, Australia
-• Team UIDs: 5↔ 19 (either side can be home/away)
-
-Full squad (25):
-**Australia (AUS):**
-Mitchell Owen, Adam Zampa, Travis Head, Ben Dwarshuis, Matthew Short, Josh Inglis, Matthew Kuhnemann, 
-Sean Abbott, Glenn Maxwell, Mitchell Marsh, Josh Hazlewood, Cameron Green, Tim David, Aaron Hardie,Nathan Ellis
-
-**South Africa (SA):**
-Dewald Brevis, Kwena Maphaka, Lhuan dre Pretorius, Kagiso Rabada, Nqabayomzi Peter, Aiden Markram, Lungisani Ngidi,
-Rassie van der Dussen, George Linde, Senuran Muthusamy, Prenelan Subrayen, Nandre Burger, Corbin Bosch, Ryan Rickelton, Tristan Stubbs
-
-
-🛈 If the user says “this match / venue / league / team / these players”, resolve the reference to **this fixture** unless they clearly mention something else.
-"""
+MATCH_CONTEXT = ""
 
 # Initialize MemoryAgent for language detection only
 # mem = MemoryAgent(k=5)
 
-U = COLL_MAP.get("upcoming_match", "upcoming_match")
-M = COLL_MAP.get("matches", "matches")
-P = COLL_MAP.get("players", "players")
-V = COLL_MAP.get("venues",  "venues")
+# U = COLL_MAP.get("upcoming_match", "upcoming_match")
+# M = COLL_MAP.get("matches", "matches")
+# P = COLL_MAP.get("players", "players")
+# V = COLL_MAP.get("venues",  "venues")
 
 SYSTEM_PROMPT = """
 You are an expert MongoDB query planner for three collections:
@@ -565,33 +406,16 @@ You are an expert MongoDB query planner for three collections:
 Only use the operations listed for each field above.
 If a field has a list of allowed options (shown after →), you must use one of those exact values for that field. Do not invent or assume values not in the list.
 
-
-**Current Match Context Priority**:
-   If the user's question refers to:
-   - “this match”
-   - “current match”
-   - “the match”
-   - “these players”
-   - “this venue”
-   - “our fixture”
-   ...or any similar implicit references, assume they are referring to the fixture below.
-    Use the current match context to answer the question.
-
 #Also use the memory context if available, if any of the last 3 answers say "no data available" or similar, ignore that answer for reasoning.
 "If the user query contains pronouns (e.g., 'he', 'him', 'his'), 
 always resolve them to the correct entity using the most recent relevant memory context. 
 Never use a pronoun as a value in any query field."
 
-
-
 Your job:
 
 1. Read the user’s natural-language request.
 
-• If it mentions **“this match”, “current match”, “our fixture”, “the match in context”** (or similar) and the intent is to get details of that single fixture, use the upcoming match collection.
-  If additional collections are also needed, include this object as one element of a top-level "queries" list.
-
-2. For other requests, output either:
+2. Produce **only** a JSON object with output either:
    {{{{
      "collection": "collection1" | "collection2" | "colection3",
      "filters": [{{{{"field": "...", "operation": "...", "value": ...}}}}, ...],
@@ -617,17 +441,20 @@ Your job:
    }}}}
    when the request requires multiple collections. In that case return one query object per collection.
    – always include the "collection" key in each query object.
-3. Decide which tool to call (search_matches / search_players / search_venues / search_upcoming_match)
-   based on which collection those fields belong to.
+3. ALWAYS use the **search_collection** tool and pass the exact `collection` name shown above.
+   - For multi-collection queries, call the tool once per collection.
+   - If data needs to be combined across collections, create multiple queries.
 4. After the tool returns, write a concise answer for the user.
 5. For queries asking for the "highest", "most", "top", or "best", use a sort on the relevant field
    (descending) and set limit to the required number.
 6. If the user explicitly specifies a date or date range, include it in the query filters.
    Otherwise, do not add any date filters.
+7. For questions that clearly require data from multiple collections, 
+   ALWAYS use the multi-collection format with "queries" array.
 
    
 For Filtering, REMEMBER:
-When extracting player or venue names, correct spelling mistakes and use the official name as per your knowledge.
+When extracting entity names, correct spelling mistakes and use the official name as per your knowledge.
 
 Memory context:
 <CONVERSATION_HISTORY>
@@ -643,45 +470,41 @@ Memory context:
 
 Allowed operations
 • regex   – case-insensitive substring match (strings)
-• keyword – substring match inside *array* fields only (e.g., players); **do not use on scalar strings like position, venue, city, etc.**
+• keyword – substring match inside *array* fields only; **do not use on scalar strings**
 • range   – {{{{"$gte": ..}}}}, {{{{"$lte": ..}}}} on numbers or dates (YYYY-MM-DD)
 • sort    – asc / desc on sortable numeric/date fields
 
 
 Output Instructions:
-Return exactly one JSON object and nothing else.
+Return ONLY a single JSON object (no backticks, no code fences, no extra text).
 • For single-collection requests, return the query object directly.
 • For multi-collection requests, return {{{{"queries": [{{{{...}}}}, ...]}}}} with one object per collection.
 Do not add any text outside the JSON.
 
-IMPORTANT:
-
-• For questions asking for a player's total, cumulative, or overall statistic for a season or tournament (e.g., “How many wickets did X take in Y 2025?”,
-  “What is the average score at Wankhede Stadium in IPL 2024?”, “What is the win rate for Mumbai Indians in IPL 2023?”), you must fetch all relevant 
-  rows matching the filters (e.g., all matches for that player and season), and do not use limit: 1.
-• For such questions, set limit to a high value (such as 20-30) to ensure all relevant data is returned for aggregation or pattern observation.
-• Only use limit: 1 for queries that explicitly ask for the single top value (e.g., “Who scored the most runs in IPL 2025?”).
-• For questions about patterns, trends, or averages, always fetch enough data to allow for meaningful observation (e.g., all matches in a season or all matches for a player/team).
-• If the user asks for a “summary”, “trend”, “pattern”, “average”, “total”, or “how many”, do not sort or limit unless specifically requested.
-• For any prediction‐related questions (captain/vice‐captain trends, venue tags, player split recommendations):
-  - Do not add filters for prediction_data fields.
-  - Fetch and use the full "prediction_data" object from upcoming_match.
-  - Base your response suggestions directly on its values.
-
-
 """.format(schema_section=SCHEMA_SECTION)
-
-PROMPT_without_memory = ChatPromptTemplate.from_messages(
-    [("system", SYSTEM_PROMPT), ("system", MATCH_CONTEXT), ("placeholder", "{messages}")]
-)
+SYSTEM_PROMPT = SYSTEM_PROMPT.replace("{", "{{").replace("}", "}}")
+# PROMPT_without_memory = ChatPromptTemplate.from_messages(
+#     [("system", SYSTEM_PROMPT), ("system", MATCH_CONTEXT), ("placeholder", "{messages}")]
+# )
 
 # ────────────────────────────────
 # 6. LLM & agent
 # ────────────────────────────────
-llm = ChatOpenAI(model="gpt-4.1-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 
-def get_memory_prompt(n):
-    memories = get_last_memories(n)
+def get_llm():
+    """
+    Create the LLM lazily and only if an API key is available.
+    Return None if missing so the caller can fail gracefully.
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    # Newer langchain-openai uses `api_key` (not openai_api_key)
+    return ChatOpenAI(model=OPENAI_MODEL, api_key=api_key)
+
+def get_memory_prompt():
+    memories = get_last_memories(1)
     mem_text = "\n".join(
         [f"Previous Q: {m['query']}\nPrevious A: {m['answer']}" for m in memories if "no data" not in m['answer'].lower()]
     )
@@ -693,7 +516,7 @@ def get_memory_prompt(n):
         "Never use a pronoun as a value in any query field. For example, if the last answer was about 'Virat Kohli', and the user now asks 'How many runs did he make?', use 'Virat Kohli' as the value for 'player_name'.\n"
         "The most recent memory (highest weight) is listed first.\n"
     )
-MEMORY_PROMPT = get_memory_prompt(1)
+MEMORY_PROMPT = get_memory_prompt()
 print("Memory context for prompt(Search agent):", MEMORY_PROMPT) 
 
 # If you currently build PROMPT via ChatPromptTemplate, keep that; just swap in variables:
@@ -736,16 +559,14 @@ def run_search_agent(
     4) Call it and pretty-print the results
     """
 
-    global ALL_FIELDS, CORE_COLL_MAP, DESCRIPTIONS, OPTIONS_MAX
-    global COLL_MAP, SEARCHABLE_FIELDS, CORE_RULES_TEXT, SCHEMA_SECTION
+    global ALL_FIELDS, DESCRIPTIONS, OPTIONS_MAX
+    global SEARCHABLE_FIELDS, CORE_RULES_TEXT, SCHEMA_SECTION
 
-    ALL_FIELDS, CORE_COLL_MAP, DESCRIPTIONS, OPTIONS_MAX = _load_schema_live()
-    COLL_MAP          = CORE_COLL_MAP            # back-compat alias (roles → names)
-    SEARCHABLE_FIELDS = ALL_FIELDS               # back-compat alias ({name: fields})
-
-    # ---------- 1) build dynamic prompt blocks ----------
+    ALL_FIELDS, DESCRIPTIONS, OPTIONS_MAX = _load_schema_live()
+    SEARCHABLE_FIELDS = ALL_FIELDS
+    COLLECTION_NAMES = list(ALL_FIELDS.keys())        # NEW
     SCHEMA_SECTION  = render_schema_section_all(ALL_FIELDS, DESCRIPTIONS, OPTIONS_MAX)
-    CORE_RULES_TEXT = render_core_rules(CORE_COLL_MAP)
+    CORE_RULES_TEXT = render_core_rules(COLLECTION_NAMES)  # REPLACE old CORE_COLL_MAP call
     
 
     # -------- always-defined placeholders --------
@@ -766,12 +587,14 @@ def run_search_agent(
     prompt = SYSTEM_PROMPT.replace("<CONVERSATION_HISTORY>", history)
     prompt_template = ChatPromptTemplate.from_messages([
         ("system", prompt),
-        ("system", MATCH_CONTEXT),
         ("system", CORE_RULES_TEXT),
+        ("system", USER_MATCH_CONTEXT),  # optional; may be ""
         ("system", MEMORY_PROMPT),
         ("human", query)
     ])
 
+    llm = get_llm()
+    
     response = create_react_agent(
         model=llm,
         tools=TOOLS,
@@ -801,11 +624,15 @@ def run_search_agent(
     print("\n[LLM-RAW]\n", spec_str)
 
     try:
-        decoder = json.JSONDecoder()
-        raw_spec, idx = decoder.raw_decode(spec_str)
-    except json.JSONDecodeError as e:
+        raw_spec = _extract_json_spec(spec_str)
+    except Exception as e:
+        # show the entire returned text so you can see what the model sent
         answer = f"⚠️ JSON parse error:\n{e}\n```json\n{spec_str}\n```"
+        debug_blob["spec"] = {}
         return {}, answer, debug_blob
+    
+    debug_blob["spec"] = raw_spec  # keep it for the UI
+    qspec = raw_spec
 
     # Determine whether we have a single query or multiple queries
     if isinstance(raw_spec, dict) and "queries" in raw_spec:
@@ -827,72 +654,54 @@ def run_search_agent(
     results_debug: List[Dict[str, Any]] = []
 
     for qspec in query_specs:
-        # 1) Normalize dynamic names → base COLL_MAP keys
-        raw_name = qspec.get("collection", "")
-        if raw_name.startswith("upcoming_match"):
-            coll_key = "upcoming_match"
-        elif raw_name.startswith("players"):
-            coll_key = "players"
-        elif raw_name.startswith("venues"):
-            coll_key = "venues"
-        elif raw_name.startswith("matches"):
-            coll_key = "matches"
-        else:
-            coll_key = next((k for k, v in COLL_MAP.items() if v == raw_name), None)
-        if not coll_key:
-            answer = f"⚠️ Unknown collection: {raw_name}"
+        # 1) Determine the actual collection name requested
+        coll_name = qspec.get("collection", "")
+        if not coll_name:
+            answer = "⚠️ Missing 'collection' in spec."
+            return spec, answer, debug_blob
+        # Validate against known schema (admin-registered)
+        if coll_name not in SEARCHABLE_FIELDS:
+            answer = f"⚠️ Unknown collection: {coll_name}"
             return spec, answer, debug_blob
 
-        # Normalize filters with collection-aware validation and team-name expansion
-        raw_filters = []
-        for f in qspec.get("filters", []):
-            norm = _normalise_filter(f, COLL_MAP[coll_key], invalid_fields)
-            if norm:
-                if norm["field"] in ["home_display_team_name", "away_display_team_name"]:
-                    for field in ["home_display_team_name", "away_display_team_name"]:
-                        raw_filters.append({
-                            "field": field,
-                            "operation": norm["operation"],
-                            "value": norm["value"]
-                        })
-                else:
-                    raw_filters.append(norm)
-        qspec["filters"] = raw_filters
 
-        # Normalize legacy sort format, add scheduled_date when needed...
-        if isinstance(qspec.get("sort", {}), dict) and "field_name" in qspec["sort"]:
-            field = qspec["sort"].pop("field_name")
-            order = qspec["sort"].pop("order", "asc")
-            qspec["sort"] = {field: order}
-        # after
-        if coll_key in ("matches", "players"):
-            qspec.setdefault("sort", {})
-            qspec["sort"].setdefault("scheduled_date", "desc")
+        # # Normalize filters with collection-aware validation and team-name expansion
+        # raw_filters = []
+        # for f in qspec.get("filters", []):
+        #     norm = _normalise_filter(f, coll_name, invalid_fields)
+        #     if norm:
+        #         raw_filters.append(norm)
+        # qspec["filters"] = raw_filters
 
-        print("\n[NORMALIZED QUERY SPEC]\n", json.dumps(qspec, indent=2))
+        # # Normalize legacy sort format, add scheduled_date when needed...
+        # if isinstance(qspec.get("sort", {}), dict) and "field_name" in qspec["sort"]:
+        #     field = qspec["sort"].pop("field_name")
+        #     order = qspec["sort"].pop("order", "asc")
+        #     qspec["sort"] = {field: order}
+
+        # print("\n[NORMALIZED QUERY SPEC]\n", json.dumps(qspec, indent=2))
 
         # 2) ALWAYS run each query, regardless of filters
-        res = _run_query(coll_key, qspec)
-        print(f"\n[DEBUG] Result for {coll_key}:", json.dumps(res, indent=2, default=str))
+        res = _run_query(coll_name, qspec)
+        print(f"\n[DEBUG] Result for {coll_name}:", json.dumps(res, indent=2, default=str))
 
         # 3) Handle errors without breaking out
         if not res.get("ok"):
             debug_blob.setdefault("errors", []).append({
-                "collection": coll_key,
+                "collection": coll_name,
                 "error":      res.get("error"),
                 "filter":     res.get("filter", {})
             })
             continue
 
         # 4) Accumulate successful results
-        chosen_collections.append(coll_key)
+        chosen_collections.append(coll_name)
         filters_debug.append(res.get("filter", {}))
         results_debug.append(res)
 
-        if coll_key == "upcoming_match":
-            answer_parts.append(json.dumps(res["docs"][0], indent=2))
-        else:
-            answer_parts.extend(f"• {d['summary']}" for d in res["docs"])
+        # Always output full object(s)
+        for d in res["docs"]:
+            answer_parts.append(json.dumps(d, indent=2, default=str))
 
 
 
@@ -987,8 +796,8 @@ def run_search_agent(
         msgs = [f"{e['collection']}: {e['error']}" for e in debug_blob["errors"]]
         return spec, f"⚠️ All queries failed: {'; '.join(msgs)}", debug_blob
 
-    # Otherwise return whatever docs we did retrieve
-    answer = "\n".join(answer_parts)
+    # Otherwise return whatever docs we did retrieve (full objects)
+    answer = "\n\n".join(answer_parts)
     return spec, answer, debug_blob
 
 
@@ -997,19 +806,15 @@ def run_search_agent(
 # 8. Index hints (optional, safe to rerun)
 # ────────────────────────────────
 def ensure_indexes():
+    """Create indexes on fields marked sortable in the admin schema."""
     try:
-        db.matches_filtered_90696.create_index("league_name")
-        db.matches_filtered_90696.create_index("players")
-        db.matches_filtered_90696.create_index("scheduled_date")
-        db.matches_filtered_90696.create_index("bat_first_team_score")
-
-        db.players_filtered_90696.create_index("player_name")
-        db.players_filtered_90696.create_index("fantasy_points")
-        db.players_filtered_90696.create_index("position")
-
-        db.venues_filtered_90696.create_index("city")
-        db.venues_filtered_90696.create_index("capacity")
-        db.venues_filtered_90696.create_index("run_per_over")
+        for coll_name, fields in SEARCHABLE_FIELDS.items():
+            for f in fields:
+                if "operations" in f and "sort" in f["operations"]:
+                    try:
+                        db[coll_name].create_index(f["name"])
+                    except Exception as ie:
+                        print(f"Index warn {coll_name}.{f['name']}: {ie}")
     except Exception as e:
         print(f"Index creation warning: {e}")
 
@@ -1020,17 +825,12 @@ ensure_indexes()
 # ────────────────────────────────
 if __name__ == "__main__":
     TEST_QUERIES = [
-        "squad of this match",
-        # "Find matches in Caribbean Premier League with player Mohammad Nabi after 2020, sort by bat_first_team_score descending",
-        # "Find players named Nabi with fantasy points over 5 and position All-rounder, sort by fantasy points descending",
-        # "provide match with highest runs of Indian T20 league in 2025",
-        # "highest runs of virat kohli",
-        # "Show all matches in Indian Premier League 2024.",
-        # "Find venues in Hyderabad with capacity over 50000, sort by run_per_over ascending",
+        "Show top 3 orders by total amount in the last 30 days",
+        "List customers from Bangalore sorted by signup_date desc limit 5"
     ]
     for q in TEST_QUERIES:
         print("\n🠚  ", q)
-        spec, answer, dbg = run_search_agent(q,history=MATCH_CONTEXT)
+        spec, answer, dbg = run_search_agent(q, history="")
 
         # overwrite the log file with this run’s data
         log_entry = {
