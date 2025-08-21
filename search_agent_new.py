@@ -503,28 +503,26 @@ def get_llm():
     # Newer langchain-openai uses `api_key` (not openai_api_key)
     return ChatOpenAI(model=OPENAI_MODEL, api_key=api_key)
 
-def get_memory_prompt():
-    memories = get_last_memories(1)
+def get_memory_prompt(n):
+    memories = get_last_memories(n)
     mem_text = "\n".join(
         [f"Previous Q: {m['query']}\nPrevious A: {m['answer']}" for m in memories if "no data" not in m['answer'].lower()]
     )
     return (
         "### RECENT MEMORY CONTEXT\n"
-        "If any of the last 3 answers below say 'no data available' or similar, ignore that answer for reasoning.\n"
+        "If any of the last answers below say 'no data available' or similar, ignore that answer for reasoning.\n"
         f"{mem_text}\n"
         "When the user query contains pronouns like 'he', 'him', 'his''इसको','इसके'(any language), always resolve them to the correct player name using the most recent relevant memory. For example, if the last answer was about 'X', and the user now asks 'his last 5 matches', use 'X' as the value for 'player_name'.\n"
         "Never use a pronoun as a value in any query field. For example, if the last answer was about 'Virat Kohli', and the user now asks 'How many runs did he make?', use 'Virat Kohli' as the value for 'player_name'.\n"
         "The most recent memory (highest weight) is listed first.\n"
     )
-MEMORY_PROMPT = get_memory_prompt()
-print("Memory context for prompt(Search agent):", MEMORY_PROMPT) 
+
 
 # If you currently build PROMPT via ChatPromptTemplate, keep that; just swap in variables:
 PROMPT = ChatPromptTemplate.from_messages([
     ("system", SYSTEM_PROMPT),
     ("system", CORE_RULES_TEXT),        # core rules injected here (generalised)
-    ("system", USER_MATCH_CONTEXT),     # optional, can be "" (user add-on)
-    ("system", MEMORY_PROMPT),          # you already compute this:contentReference[oaicite:4]{index=4}
+    ("system", USER_MATCH_CONTEXT),     # optional, can be "" (user add-on)      # you already compute this:contentReference[oaicite:4]{index=4}
     ("placeholder", "{messages}")
 ])
 
@@ -589,7 +587,6 @@ def run_search_agent(
         ("system", prompt),
         ("system", CORE_RULES_TEXT),
         ("system", USER_MATCH_CONTEXT),  # optional; may be ""
-        ("system", MEMORY_PROMPT),
         ("human", query)
     ])
 

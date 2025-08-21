@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 # reuse the structured search
-from search_agent_new import run_search_agent          # returns (spec, rows_text)
+from search_agent_new import run_search_agent, get_memory_prompt       # returns (spec, rows_text)
 
 from lang_detect import LangDetectAgent       # ① import
 mem = LangDetectAgent()      
@@ -100,21 +100,7 @@ PROMPT_FORMATTING = textwrap.dedent("""\
 reg = load_registry()
 CORE_RULES_TEXT = render_core_rules(get_collection_names(reg))
 
-def get_memory_prompt2(n):
-    memories = get_last_memories(n)
-    filtered = [m for m in memories if "no data" not in m["answer"].lower()]
-    if not filtered:
-        return ""
-    mem_text = "\n\n".join(
-        [f"Previous Q: {m['query']}\nPrevious A: {m['answer']}" for m in filtered]
-    )
-    return (
-        "### RECENT MEMORY CONTEXT\n"
-        "If any of the last 3 answers below say 'no data available' or similar, ignore that answer for reasoning.\n"
-        f"{mem_text}\n"
-        "Just use the other memories to answer the question.\n."
-    )
-memory_context = get_memory_prompt2(1)
+memory_context = get_memory_prompt(1)
 print("Memory context for prompt(response_gen):", memory_context)  # Debugging line
 
 PROMPT_Q_AND_ROWS = textwrap.dedent("""\
@@ -234,7 +220,42 @@ if __name__ == "__main__":
     }, indent=2))
 
 
+def get_suggested_questions(q:str,answer: str, max_questions=3,custom_prompt=None) -> list[str]:
+    """
+    Given the current assistant's answer, generate up to `max_questions`
+    relevant follow-up questions about cricket players, venues, matches, etc.
+    """
+    prompt = f"""
+    You are an expert fantasy cricket assistant. Based on the answer below, suggest up to {max_questions} relevant follow-up questions
+    a user might want to ask next to continue the conversation.  List each question as a bullet point starting with '-'.
+    Query text:
+    {q}
+    Answer text:
+    \"\"\"
+    {answer}
+    \"\"\"
 
+    Suggested questions:
+    -
+    """
+      # Debugging line
+    final_prompt = f"{prompt}\n\n{custom_prompt}"
+     # Debugging line
+        # Use your existing ChatOpenAI instance (narrator) for generation
+    response = narrator.generate([[HumanMessage(content=final_prompt)]])
+    text = response.generations[0][0].text.strip()
+
+    questions = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("-"):
+            q = line[1:].strip()
+            if q:
+                questions.append(q)
+        if len(questions) >= max_questions:
+            break
+
+    return questions
 
 
 

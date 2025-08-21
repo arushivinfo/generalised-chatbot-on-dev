@@ -10,8 +10,8 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_openai import ChatOpenAI
 
 # --- BACK-END IMPORTS --------------------------------------------
-from search_agent_new import run_search_agent          # returns (spec, rows_text)
-from response_gen import DEFAULT_PROMPT_SECTIONS, compose_prompt,get_memory_prompt2
+from search_agent_new import run_search_agent, get_memory_prompt        # returns (spec, rows_text)
+from response_gen import DEFAULT_PROMPT_SECTIONS, compose_prompt, get_suggested_questions
 from response_gen import narrator                      # ChatOpenAI instance
 
 # --- Collection metadata for rows formatting ---
@@ -22,6 +22,24 @@ from response_gen import narrator                      # ChatOpenAI instance
 #     "upcoming_match": ("upcoming_match_90696_summary","upcoming_match collection – contains prediction data and details of upcoming match"),
 # }
 from schema_registry import load_registry, get_collection_names, get_descriptions
+
+
+# Default suggested questions settings
+DEFAULT_SUGGESTED_QUESTIONS_PROMPT = """\
+Generate relevant follow-up questions based on the user's original question and the assistant's answer. Focus on:
+Questions should be short(10-12 words) and simple also highly relevant to the context (match, players, or venue) according to the Question and Answer.
+Make questions specific, actionable, and likely to provide valuable insights for fantasy cricket users.
+"""
+
+DEFAULT_SUGGESTED_QUESTIONS_COUNT = 3
+
+# Initialize suggested questions settings
+if "suggested_questions_settings" not in st.session_state:
+    st.session_state.suggested_questions_settings = {
+        "enabled": True,
+        "custom_prompt": DEFAULT_SUGGESTED_QUESTIONS_PROMPT,
+        "max_questions": DEFAULT_SUGGESTED_QUESTIONS_COUNT
+    }
 
 def _coll_meta_from_registry():
     reg = load_registry()
@@ -130,6 +148,21 @@ def get_cb(container):
 # --- 2.  Page styling (copied from your old frontend) -------------
 st.set_page_config(page_title="Data QA Chat", page_icon="🧠", layout="wide")
 
+with st.sidebar:
+    st.markdown("<h2 style='text-align:left;'>User Panel</h2>", unsafe_allow_html=True)
+    # Initialize user_name in session state if missing
+    if "user_name" not in st.session_state:
+        st.session_state.user_name = ""
+    user_name = st.text_input("User Name", value=st.session_state.user_name, key="user_name_sidebar")
+    st.session_state.user_name = user_name
+    st.divider()
+    st.markdown("<h4>Chat Cache</h4>", unsafe_allow_html=True)
+
+    # Import view_cache here or earlier if you want
+
+    from cache_memory import view_cache
+    st.write("Current cache:", view_cache()[-1:])
+
 st.markdown(Path("frontend.css").read_text() if Path("frontend.css").exists() else """<style>
 .chat-container{background:#fff;border-radius:8px;padding:10px;margin-bottom:20px;min-height:60vh;overflow-y:auto}
 .stChatMessage{margin-bottom:15px}.stChatMessage>div{border-radius:10px;padding:10px;max-width:80%}
@@ -161,11 +194,33 @@ if st.button("Clear Chat"): st.session_state.chat = []; st.rerun()
 chat_tab, prompt_tab = st.tabs(["Chat", "Prompt Settings"])
 
 with chat_tab:
+    if "pending_question" not in st.session_state:
+        st.session_state.pending_question = None
+        
+    # Debug: Check if we have a pending question
+    if st.session_state.pending_question:
+        print(f"Found pending question: {st.session_state.pending_question}")
+    else:
+        print("No pending question found")
+        
     for role, msg in st.session_state.chat:
         with st.chat_message(role):
             st.markdown(msg)
 
-    q = st.chat_input("Ask about your datasets…")
+    # Always show the chat input, but handle pending questions first
+    chat_input_q = st.chat_input("Ask about players, venues, fantasy picks…")
+    
+    # Determine which question to process
+    if st.session_state.pending_question:
+        q = st.session_state.pending_question
+        print(f"Processing pending question: {q}")
+        st.session_state.pending_question = None  # Clear immediately
+        print("Cleared pending_question")
+    else:
+        q = chat_input_q
+        if q:
+            print(f"Got question from chat input: {q}")
+
 
     if q:
         st.session_state.chat.append(("user", q))
@@ -177,6 +232,9 @@ with chat_tab:
 
             step_box   = st.expander("Intermediate steps", expanded=False)
             step_cb    = StreamlitStepHandler(step_box)
+            if st.session_state.get("pending_question"):
+                del st.session_state.pending_question
+
 
             # STEP 0 – **no rewrite**: just use the original question
             standalone_q = q
@@ -184,7 +242,7 @@ with chat_tab:
 
             # STEP 1 – structured search on the rewritten question
             with st.spinner("Planning and retrieving documents 📂️..."):
-                spec, rows_text, dbg = run_search_agent(standalone_q, callbacks=[step_cb],history=get_memory_prompt2(1))
+                spec, rows_text, dbg = run_search_agent(standalone_q, callbacks=[step_cb],history=get_memory_prompt(1))
                 step_cb.render()  # show steps up to now
 
             dbg_box = st.expander("Debug info", expanded=False)
@@ -228,7 +286,7 @@ with chat_tab:
                     question=q,
                     rows=rows_clean,
                     language=lang,
-                    memory_context=get_memory_prompt2(1)  # get last 3 memories
+                    memory_context=get_memory_prompt(1)  # get last 3 memories
                 )
 
                 prompt_debug = st.expander("Prompt sent to LLM", expanded=False)
@@ -252,6 +310,51 @@ with chat_tab:
             from cache_memory import save_to_cache
             save_to_cache(q, answer)
 
+            # NEW: Generate and display suggested questions (only if enabled)
+            if st.session_state.suggested_questions_settings.get("enabled", True):
+                with st.spinner("Generating suggested questions..."):
+                    try:
+                        # Use custom settings for suggested questions
+                        custom_prompt = st.session_state.suggested_questions_settings.get("custom_prompt", DEFAULT_SUGGESTED_QUESTIONS_PROMPT)
+                        max_questions = st.session_state.suggested_questions_settings.get("max_questions", DEFAULT_SUGGESTED_QUESTIONS_COUNT)
+                        
+                        # Pass custom prompt to get_suggested_questions function
+                        # Note: You may need to modify get_suggested_questions to accept custom_prompt parameter
+                        suggested_questions = get_suggested_questions(
+                            q, answer, 
+                            max_questions=max_questions,
+                            custom_prompt=custom_prompt  # This parameter may need to be added to the function
+                        )
+                        
+                        if suggested_questions:
+                            st.markdown("### 💡 You might also want to ask:")
+                            
+                            # Create columns for better layout
+                            cols = st.columns(len(suggested_questions))
+                            
+                            # Create a callback function for button clicks
+                            def set_pending_question(suggestion_text):
+                                st.session_state.pending_question = suggestion_text
+                                print(f"Callback: Set pending_question to: {suggestion_text}")
+                            
+                            for i, suggestion in enumerate(suggested_questions):
+                                print(f"Suggestion {i}: {suggestion}")  # Debugging line
+                                with cols[i]:
+                                    # Use a unique key for each button to avoid conflicts
+                                    button_key = f"suggest_{len(st.session_state.chat)}_{i}_{hash(suggestion)}"
+                                    if st.button(
+                                        f"❓ {suggestion}", 
+                                        key=button_key, 
+                                        help="Click to ask this question",
+                                        on_click=set_pending_question,
+                                        args=(suggestion,)
+                                    ):
+                                        print(f"Button clicked for suggestion: {suggestion}")  # This will execute
+                                        # The callback will handle setting the pending question
+                                        pass  # Remove st.rerun() from here
+                    except Exception as e:
+                        st.error(f"Error generating suggestions: {e}")
+
 with prompt_tab:
     st.markdown("### Prompt Sections")
     for section, text in list(st.session_state.prompt_sections.items()):
@@ -266,6 +369,57 @@ with prompt_tab:
         st.success("Prompt sections updated")
 
     st.divider()
+
+    # NEW: Suggested Questions Settings Section
+    st.markdown("### Suggested Questions Settings")
+    
+    # Enable/Disable suggested questions
+    st.session_state.suggested_questions_settings["enabled"] = st.checkbox(
+        "Enable Suggested Questions", 
+        value=st.session_state.suggested_questions_settings.get("enabled", True),
+        help="Show follow-up question suggestions after each response"
+    )
+    
+    if st.session_state.suggested_questions_settings["enabled"]:
+        # Number of suggested questions
+        st.session_state.suggested_questions_settings["max_questions"] = st.slider(
+            "Number of Suggested Questions",
+            min_value=1,
+            max_value=5,
+            value=st.session_state.suggested_questions_settings.get("max_questions", DEFAULT_SUGGESTED_QUESTIONS_COUNT),
+            help="How many suggested questions to display"
+        )
+        
+        # Custom prompt for suggested questions
+        st.markdown("#### Custom Prompt for Suggested Questions")
+        if "suggested_questions_prompt_key" not in st.session_state:
+            st.session_state.suggested_questions_prompt_key = st.session_state.suggested_questions_settings.get("custom_prompt", DEFAULT_SUGGESTED_QUESTIONS_PROMPT)
+        
+        custom_prompt = st.text_area(
+            "Instructions for generating suggested questions",
+            key="suggested_questions_prompt_key",
+            height=200,
+            help="This prompt will be used to generate follow-up questions. Be specific about the type of questions you want."
+        )
+        st.session_state.suggested_questions_settings["custom_prompt"] = custom_prompt
+        
+        # Save button for suggested questions settings
+        if st.button("Save Suggested Questions Settings"):
+            st.success("Suggested questions settings updated")
+        
+        # Reset to defaults button
+        # if st.button("Reset to Default Settings"):
+        #     st.session_state.suggested_questions_settings = {
+        #         "enabled": True,
+        #         "custom_prompt": DEFAULT_SUGGESTED_QUESTIONS_PROMPT,
+        #         "max_questions": DEFAULT_SUGGESTED_QUESTIONS_COUNT
+        #     }
+        #     st.session_state.suggested_questions_prompt_key = DEFAULT_SUGGESTED_QUESTIONS_PROMPT
+        #     st.success("Settings reset to defaults")
+        #     st.rerun()
+
+    st.divider()
+    
     st.markdown("### Answering Templates (appended to **Formatting** at runtime)")
 
     # Render existing templates with edit/toggle/delete
@@ -321,21 +475,3 @@ with prompt_tab:
         st.success("Template added.")
 
     st.button("Add Template", on_click=_add_template_cb)
-
-from cache_memory import view_cache
-
-st.write("Current cache:", view_cache())
-
-    # st.markdown("#### Add New Template")
-    # new_name = st.text_input("New Template Name", key="new_tpl_name", placeholder="e.g., For Venue Queries")
-    # new_text = st.text_area("New Template Content", key="new_tpl_text", height=140)
-    # if st.button("Add Template"):
-    #     if new_name.strip() and new_text.strip():
-    #         st.session_state.answering_templates.append(
-    #             {"id": str(uuid4()), "name": new_name.strip(), "enabled": True, "text": new_text.strip()}
-    #         )
-    #         st.session_state.new_tpl_name = ""
-    #         st.session_state.new_tpl_text = ""
-    #         st.success("Template added.")
-    #     else:
-    #         st.warning("Please provide both a name and content.")
