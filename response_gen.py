@@ -223,10 +223,10 @@ if __name__ == "__main__":
 def get_suggested_questions(q:str,answer: str, max_questions=3,custom_prompt=None) -> list[str]:
     """
     Given the current assistant's answer, generate up to `max_questions`
-    relevant follow-up questions about cricket players, venues, matches, etc.
+    
     """
     prompt = f"""
-    You are an expert fantasy cricket assistant. Based on the answer below, suggest up to {max_questions} relevant follow-up questions
+    You are a suggested question assistant. Based on the answer below, suggest up to {max_questions} relevant follow-up questions
     a user might want to ask next to continue the conversation.  List each question as a bullet point starting with '-'.
     Query text:
     {q}
@@ -234,7 +234,7 @@ def get_suggested_questions(q:str,answer: str, max_questions=3,custom_prompt=Non
     \"\"\"
     {answer}
     \"\"\"
-
+ 
     Suggested questions:
     -
     """
@@ -244,7 +244,7 @@ def get_suggested_questions(q:str,answer: str, max_questions=3,custom_prompt=Non
         # Use your existing ChatOpenAI instance (narrator) for generation
     response = narrator.generate([[HumanMessage(content=final_prompt)]])
     text = response.generations[0][0].text.strip()
-
+ 
     questions = []
     for line in text.splitlines():
         line = line.strip()
@@ -254,8 +254,9 @@ def get_suggested_questions(q:str,answer: str, max_questions=3,custom_prompt=Non
                 questions.append(q)
         if len(questions) >= max_questions:
             break
-
+ 
     return questions
+ 
 
 
 

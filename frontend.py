@@ -1,4 +1,3 @@
-# cric_chat_ui.py
 # Front-end for Perfect Lineup Chatbot 🏏   (uses search_agent_new + response_gen)
 from uuid import uuid4
 import uuid, json, inspect
@@ -27,8 +26,8 @@ from schema_registry import load_registry, get_collection_names, get_description
 # Default suggested questions settings
 DEFAULT_SUGGESTED_QUESTIONS_PROMPT = """\
 Generate relevant follow-up questions based on the user's original question and the assistant's answer. Focus on:
-Questions should be short(10-12 words) and simple also highly relevant to the context (match, players, or venue) according to the Question and Answer.
-Make questions specific, actionable, and likely to provide valuable insights for fantasy cricket users.
+Questions should be short(10-12 words) and simple also highly relevant to the context according to the Question and Answer.
+Make questions specific, actionable, and likely to provide valuable insights for the users.
 """
 
 DEFAULT_SUGGESTED_QUESTIONS_COUNT = 3

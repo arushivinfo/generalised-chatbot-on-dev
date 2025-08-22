@@ -17,7 +17,7 @@ PROMPT_TMPL = ChatPromptTemplate.from_messages(
 
 class LangDetectAgent:
     def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+        self.llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.0)
 
     def detect_language(self, question: str) -> str:
         """Detect language of a single user question. Returns a string 'code: name', or 'NONE' if undetectable.
