@@ -1,0 +1,10 @@
+langchain==0.3.25
+langchain-openai==0.3.15
+langchain-core==0.3.65
+openai==1.76.2
+pymongo==4.11.3
+python-dotenv==1.1.0
+pydantic==2.11.4
+# textwrap
+streamlit==1.45.0
+langgraph
