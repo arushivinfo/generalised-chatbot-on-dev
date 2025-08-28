@@ -1,0 +1,1420 @@
+{
+  "options_max": 100,
+  "collections": {
+    "activity_list": {
+      "description": "",
+      "fields": [
+        {
+          "name": "activity_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for each activity record",
+          "options": []
+        },
+        {
+          "name": "activity_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Timestamp when the activity occurred",
+          "options": []
+        },
+        {
+          "name": "activity_time",
+          "type": "float",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Duration of the activity in hours",
+          "options": []
+        },
+        {
+          "name": "activity_type",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Categorical type of activity performed",
+          "options": []
+        },
+        {
+          "name": "break_count",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Number of breaks taken during the activity",
+          "options": []
+        },
+        {
+          "name": "break_time",
+          "type": "float",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Total break time in hours during the activity",
+          "options": []
+        },
+        {
+          "name": "cluster_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Identifier for the image cluster associated with the activity",
+          "options": [
+            "100_20250822_1_1.jpg",
+            "1056_20250826_6_2.jpg",
+            "1084_20250825_6_2.jpg",
+            "129_20250826_1_1.jpg",
+            "1305_20250827_2_1.jpg",
+            "1332_20250825_4_2.jpg",
+            "133_20250825_2_1.jpg",
+            "1342_20250819_6_2.jpg",
+            "1508_20250820_3_2.jpg",
+            "159_20250821_1_1.jpg",
+            "1744_20250827_4_2.jpg",
+            "1785_20250819_4_2.jpg",
+            "1955_20250821_4_2.jpg",
+            "199_20250821_4_2.jpg",
+            "2041_20250821_4_2.jpg",
+            "2043_20250827_4_2.jpg",
+            "2162_20250827_4_2.jpg",
+            "2171_20250822_3_2.jpg",
+            "2278_20250827_3_2.jpg",
+            "241_20250818_2_1.jpg",
+            "254_20250825_1_1.jpg",
+            "2572_20250827_4_2.jpg",
+            "261_20250819_4_2.jpg",
+            "261_20250823_2_1.jpg",
+            "277_20250826_3_2.jpg",
+            "294_20250820_1_1.jpg",
+            "310_20250823_6_2.jpg",
+            "3559_20250823_3_2.jpg",
+            "35_20250820_3_2.jpg",
+            "368_20250822_4_2.jpg",
+            "389_20250818_3_2.jpg",
+            "400_20250822_6_2.jpg",
+            "430_20250825_1_1.jpg",
+            "485_20250828_1_1.jpg",
+            "486_20250822_4_2.jpg",
+            "536_20250821_2_1.jpg",
+            "537_20250825_3_2.jpg",
+            "578_20250826_1_1.jpg",
+            "57_20250820_1_1.jpg",
+            "585_20250819_1_1.jpg",
+            "586_20250828_4_2.jpg",
+            "590_20250820_2_1.jpg",
+            "601_20250819_4_2.jpg",
+            "691_20250821_1_1.jpg",
+            "71_20250823_2_1.jpg",
+            "734_20250826_3_2.jpg",
+            "751_20250821_4_2.jpg",
+            "774_20250821_4_2.jpg",
+            "778_20250821_1_1.jpg",
+            "784_20250826_3_2.jpg",
+            "809_20250819_2_1.jpg",
+            "830_20250820_5_2.jpg",
+            "874_20250819_4_2.jpg",
+            "908_20250819_2_1.jpg",
+            "914_20250826_4_2.jpg",
+            "917_20250822_4_2.jpg",
+            "cv1_110_20250814_3_2.jpg",
+            "cv1_424_20250814_3_2.jpg",
+            "cv1_51_20250813_3_2.jpg",
+            "cv1_546_20250813_4_2.jpg",
+            "cv1_555_20250813_3_2.jpg",
+            "cv1_584_20250814_5_2.jpg",
+            "cv1_617_20250814_3_2.jpg",
+            "cv1_63_20250818_5_2.jpg",
+            "cv1_684_20250814_3_2.jpg",
+            "cv1_707_20250814_3_2.jpg",
+            "cv1_942_20250813_3_2.jpg"
+          ]
+        },
+        {
+          "name": "cluster_type",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Type/category of the cluster",
+          "options": []
+        },
+        {
+          "name": "day_cluster_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Identifier for the daily cluster grouping (if any)",
+          "options": [
+            "10_20250828_3_2.jpg",
+            "1151_20250827_1_1.jpg",
+            "125_20250825_5_2.jpg",
+            "1274_20250827_4_2.jpg",
+            "172_20250819_6_2.jpg",
+            "199_20250818_2_1.jpg",
+            "2038_20250827_4_2.jpg",
+            "21_20250825_6_2.jpg",
+            "269_20250828_2_1.jpg",
+            "2700_20250823_3_2.jpg",
+            "2_20250825_2_1.jpg",
+            "4_20250825_3_2.jpg",
+            "811_20250827_2_1.jpg",
+            "889_20250819_1_1.jpg",
+            "cv1_10_20250826_1_1.jpg",
+            "cv1_1186_20250825_1_1.jpg",
+            "cv1_118_20250814_3_2.jpg",
+            "cv1_11_20250822_4_2.jpg",
+            "cv1_21_20250821_7_3.jpg",
+            "cv1_304_20250814_3_2.jpg",
+            "cv1_373_20250822_2_1.jpg",
+            "cv1_412_20250814_1_1.jpg",
+            "cv1_45_20250821_2_1.jpg",
+            "cv1_675_20250825_1_1.jpg",
+            "cv1_886_20250814_5_2.jpg",
+            "no_face"
+          ]
+        },
+        {
+          "name": "device_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the device recording the activity",
+          "options": []
+        },
+        {
+          "name": "device_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the device recording the activity",
+          "options": [
+            "Dev Floor-1",
+            "Dev Floor-2",
+            "Ground Floor-1",
+            "Ground Floor-2",
+            "Pantry-1",
+            "Pantry-2"
+          ]
+        },
+        {
+          "name": "display_cluster_row",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Row position of the cluster in the display layout",
+          "options": []
+        },
+        {
+          "name": "display_row",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Row position of the activity in the display layout",
+          "options": []
+        },
+        {
+          "name": "face_score",
+          "type": "float",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Confidence score of face recognition for the activity",
+          "options": []
+        },
+        {
+          "name": "first_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "First name of the user associated with the activity",
+          "options": [
+            "Aasif",
+            "Abhinandan",
+            "Akash",
+            "Anas",
+            "Anil",
+            "Anshul",
+            "Arushi",
+            "Ashwin",
+            "Bhupendra",
+            "Chaitanya",
+            "Danish",
+            "Gunjan",
+            "Hafees",
+            "Jackey",
+            "Kamal",
+            "Kratika",
+            "Lakshya",
+            "Mahendra",
+            "Nilesh",
+            "Rahul",
+            "Rajesh",
+            "Rohan",
+            "Satish",
+            "Shakti",
+            "Shivani",
+            "Shubham",
+            "Sujal",
+            "Sumit",
+            "Tapan",
+            "Vasu",
+            "Vikas",
+            "Vinod",
+            "Vishal",
+            "Vivek"
+          ]
+        },
+        {
+          "name": "is_vest",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Indicator if the user was wearing a vest (1 = yes, 0 = no)",
+          "options": []
+        },
+        {
+          "name": "last_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Last name of the user associated with the activity",
+          "options": [
+            "Ali",
+            "Baral",
+            "Gupta",
+            "Harsola",
+            "Jackey",
+            "Jain",
+            "Jaiswal",
+            "Khan",
+            "Maheshwari",
+            "Mahoday",
+            "Mehta",
+            "Modi",
+            "More",
+            "Namdev",
+            "Patel",
+            "Patidar",
+            "Prajapati",
+            "Rahul",
+            "Rathore",
+            "Satish",
+            "Sawle",
+            "Saxena",
+            "Shakti",
+            "Sharma",
+            "Soni",
+            "Sthapak",
+            "Surve",
+            "Tanwar",
+            "Varma",
+            "Vishwakarma",
+            "Vyas"
+          ]
+        },
+        {
+          "name": "movement_tracker_row",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Row position in the movement tracker display",
+          "options": []
+        },
+        {
+          "name": "old_processed_by",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Previous processor identifier for the activity record",
+          "options": []
+        },
+        {
+          "name": "old_user_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Previous user identifier associated with the activity",
+          "options": []
+        },
+        {
+          "name": "processed_by",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Current processor identifier for the activity record",
+          "options": []
+        },
+        {
+          "name": "productive_time",
+          "type": "float",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Amount of productive time in hours during the activity",
+          "options": []
+        },
+        {
+          "name": "user_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Current user identifier associated with the activity",
+          "options": []
+        }
+      ]
+    },
+    "device_list": {
+      "description": "",
+      "fields": [
+        {
+          "name": "device_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the device",
+          "options": []
+        },
+        {
+          "name": "camera_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the camera associated with the device",
+          "options": []
+        },
+        {
+          "name": "camera_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name or label of the camera",
+          "options": [
+            "CAM_IN_001",
+            "CAM_IN_002",
+            "CAM_OUT_001",
+            "CAM_OUT_002",
+            "CAM_PANT_IN_001",
+            "CAM_PANT_OUT_001"
+          ]
+        },
+        {
+          "name": "device_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name or label of the device",
+          "options": [
+            "Dev Floor-1",
+            "Dev Floor-2",
+            "Ground Floor-1",
+            "Ground Floor-2",
+            "Pantry-1",
+            "Pantry-2"
+          ]
+        },
+        {
+          "name": "device_type",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Numeric code representing the type of device",
+          "options": []
+        },
+        {
+          "name": "location",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Physical location where the device is installed",
+          "options": [
+            "Development Floor",
+            "Ground Floor",
+            "Pantry"
+          ]
+        },
+        {
+          "name": "zone_desc",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Description of the zone where the device is located",
+          "options": [
+            "Area designated for breaks or idle time",
+            "Area where productive work happens"
+          ]
+        },
+        {
+          "name": "zone_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the zone",
+          "options": []
+        },
+        {
+          "name": "zone_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the zone",
+          "options": [
+            "Development Floor",
+            "Ground Floor",
+            "Pantry"
+          ]
+        },
+        {
+          "name": "zone_type_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Numeric code representing the type of zone",
+          "options": []
+        },
+        {
+          "name": "zone_type_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the zone type",
+          "options": [
+            "Break Zone",
+            "Productive Zone"
+          ]
+        }
+      ]
+    },
+    "holiday_list": {
+      "description": "",
+      "fields": [
+        {
+          "name": "holiday_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the holiday",
+          "options": []
+        },
+        {
+          "name": "end_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Timestamp marking the end of the holiday",
+          "options": []
+        },
+        {
+          "name": "holiday_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name or title of the holiday",
+          "options": []
+        },
+        {
+          "name": "is_recurring",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Flag indicating if the holiday recurs annually (1 for yes, 0 for no)",
+          "options": []
+        },
+        {
+          "name": "start_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Timestamp marking the start of the holiday",
+          "options": []
+        }
+      ]
+    },
+    "user_list": {
+      "description": "",
+      "fields": [
+        {
+          "name": "user_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the user",
+          "options": []
+        },
+        {
+          "name": "blood_group",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "User's blood group, if available",
+          "options": []
+        },
+        {
+          "name": "department_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the user's department",
+          "options": []
+        },
+        {
+          "name": "department_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the user's department",
+          "options": [
+            "Admin",
+            "Administration",
+            "Data Analyst",
+            "Designers",
+            "Developers",
+            "Finance",
+            "Human Resource",
+            "Marketing",
+            "Network Admin",
+            "Project Managers",
+            "Quality Assurance",
+            "VOPL"
+          ]
+        },
+        {
+          "name": "designation_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the user's designation",
+          "options": []
+        },
+        {
+          "name": "designation_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the user's designation",
+          "options": [
+            "AI Intern",
+            "Backend Developer",
+            "Backend Lead",
+            "CEO",
+            "Cloud Manager",
+            "Data Analyst",
+            "Data Feed",
+            "Designer",
+            "Digital Marketing Manager",
+            "Finance Manager",
+            "Frontend Developer",
+            "Frontend Lead",
+            "HR Manager",
+            "IT Manager",
+            "ML Engineer",
+            "Marketing Executive",
+            "Office Administrator",
+            "Office Staff",
+            "Operations Cordinator",
+            "Product Manager",
+            "Project Co-ordinator",
+            "Quality Assurance",
+            "Sr. Backend Developer",
+            "Sr. Frontend Developer",
+            "VOPL Staff",
+            "Video Editior"
+          ]
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "User's email address",
+          "options": [
+            "AnilBarocha@gmail.com",
+            "Ayush.vinfotech@gmail.com",
+            "Krishnakant.bohra@vinfotech.com",
+            "Satish@mailinator.com",
+            "aasif.ali@vinfotech.com",
+            "aayushi.vinfotech@gmail.com",
+            "adarsh.malviya@vinfotech.com",
+            "aditya.choukade@vinfotech.com",
+            "ajay@vinfotech.com",
+            "akash.vinfotech@gmail.com",
+            "akshay@vinfotech.com",
+            "anas.vinfotech@gmail.com",
+            "anshul.saxena@vinfotech.com",
+            "arpitt.vinfotech@gmail.com",
+            "avinash.kumar@vinfotech.com",
+            "bhupendra.modi@vinfotech.com",
+            "chaitanya.vinfotech@gmail.com",
+            "danish.khan@vinfotech.com",
+            "dharmendra.sharma@vinfotech.com",
+            "girish.patidar@vinfotech.com",
+            "gunjan.vinfotech@gmail.com",
+            "hafees.khan@vinfotech.com",
+            "harshit.joshi@vinfotech.com",
+            "jai.patel@vinfotech.com",
+            "kratika.sharma@vinfotech.com",
+            "manishlohar2015@gmail.com",
+            "mayank.dubey@vinfotech.com",
+            "nilesh.patel@vinfotech.com",
+            "nileshd.vinfotech@gmail.com",
+            "pallavi.rathore@vinfotech.com",
+            "praveen.sanpada@vinfotech.com",
+            "pravin.patidar@vinfotech.com",
+            "rahul.parmar@vinfotech.com",
+            "rupali.vinfotech@gmail.com",
+            "sagar.lakhani@vinfotech.com",
+            "shani.diwaker@vinfotech.com",
+            "shivani.vishwakarma@vinfotech.com",
+            "shubhamj.vinfotech@gmail.com",
+            "sneha.vinfotech@gmail.com",
+            "sourabhsingh.vinfotech@gmail.com",
+            "sujal.vinfotech@gmail.com",
+            "sumit@vinfotech.com",
+            "umesh.vinfotech@gmail.com",
+            "user100_2677@example.com",
+            "user102_2069@example.com",
+            "user103_4736@example.com",
+            "user105_7585@example.com",
+            "user106_9241@example.com",
+            "user107_9956@example.com",
+            "user108_5323@example.com",
+            "user110_3378@example.com",
+            "user111_9664@example.com",
+            "user112_4925@example.com",
+            "user113_1020@example.com",
+            "user114_8568@example.com",
+            "user115_2230@example.com",
+            "user117_2564@example.com",
+            "user120_1383@example.com",
+            "user121_9313@example.com",
+            "user124_8106@example.com",
+            "user78_4420@example.com",
+            "user79_6338@example.com",
+            "user80_2281@example.com",
+            "user81_9730@example.com",
+            "user82_2569@example.com",
+            "user83_6901@example.com",
+            "user84_2424@example.com",
+            "user85_6484@example.com",
+            "user86_5585@example.com",
+            "user87_4181@example.com",
+            "user88_7259@example.com",
+            "user89_8876@example.com",
+            "user90_8828@example.com",
+            "user93_6433@example.com",
+            "user95_2503@example.com",
+            "user96_1923@example.com",
+            "user97_7117@example.com",
+            "user99_6040@example.com",
+            "vasu.namdev@vinfotech.com",
+            "vikas.jaiswal@vinfotech.com",
+            "vinod.patidar@vinfotech.com",
+            "vinod.tanwar@vinfotech.com",
+            "vivek.jain@vinfotech.com",
+            "yusuf.vinfotech@gmail.com"
+          ]
+        },
+        {
+          "name": "emp_type",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Type of employment for the user",
+          "options": [
+            "Employee",
+            "Ex-Employee",
+            "HouseKeeping",
+            "Service Provider",
+            "Work From Home"
+          ]
+        },
+        {
+          "name": "emp_type_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the employment type",
+          "options": []
+        },
+        {
+          "name": "first_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "User's first name",
+          "options": [
+            "Aadarsh",
+            "Aasif",
+            "Aayushi",
+            "Abhinandan",
+            "Aditya",
+            "Ajay",
+            "Akash",
+            "Akshay",
+            "Anas",
+            "Anil",
+            "Anshul",
+            "Arpit",
+            "Arushi",
+            "Ashok",
+            "Ashwin",
+            "Avinash",
+            "Ayush",
+            "Bhavani",
+            "Bhupendra",
+            "Chaitanya",
+            "Danish",
+            "Dev",
+            "Dharmendra",
+            "Gagan",
+            "Girish",
+            "Gunjan",
+            "Hafees",
+            "Harshit",
+            "Jackey",
+            "Jai",
+            "Kamal",
+            "Kratika",
+            "Krishnakant",
+            "Lakshya",
+            "Mahendra",
+            "Mahesh",
+            "Manish",
+            "Mayank",
+            "Monu",
+            "Night",
+            "Nilesh",
+            "Pallavi",
+            "Pankaj",
+            "Pawan",
+            "Pramod",
+            "Praveen",
+            "Prince",
+            "Rahul",
+            "Rajesh",
+            "Rajkumar",
+            "Ravi",
+            "Rohan",
+            "Rupali",
+            "Sagar",
+            "Satish",
+            "Shakti",
+            "Shani",
+            "Shankar",
+            "Shivani",
+            "Shubham",
+            "Shyam",
+            "Sneha",
+            "Sourabh",
+            "Sujal",
+            "Sumit",
+            "Suraj",
+            "Tapan",
+            "Umesh",
+            "Vasu",
+            "Vijay",
+            "Vikas",
+            "Vinod",
+            "Vishal",
+            "Vishnu",
+            "Vivek",
+            "Yusuf"
+          ]
+        },
+        {
+          "name": "gender",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "User's gender represented as an integer code",
+          "options": []
+        },
+        {
+          "name": "joining_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Date when the user joined the organization",
+          "options": []
+        },
+        {
+          "name": "last_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "User's last name",
+          "options": [
+            "Ali",
+            "Ashok",
+            "Bais",
+            "Baral",
+            "Barocha",
+            "Bhati",
+            "Bhavani",
+            "Bohra",
+            "Chaterjee",
+            "Choudhary",
+            "Choukade",
+            "Davda",
+            "Diwakar",
+            "Dubey",
+            "Dwivedi",
+            "Gaurd",
+            "Gupta",
+            "Harsola",
+            "Jackey",
+            "Jain",
+            "Jaiswal",
+            "Joshi",
+            "Khan",
+            "Kumar",
+            "Lakhani",
+            "Lohar",
+            "Maheshwari",
+            "Mahoday",
+            "Malviya",
+            "Mathur",
+            "Mehta",
+            "Modi",
+            "Mor",
+            "More",
+            "Nair",
+            "Namdev",
+            "Parmar",
+            "Patel",
+            "Patidar",
+            "Prajapati",
+            "Rahul",
+            "Rathore",
+            "Sanpada",
+            "Sardar",
+            "Satish",
+            "Sawle",
+            "Saxena",
+            "Shakti",
+            "Shankar",
+            "Sharma",
+            "Shree",
+            "Shrivastava",
+            "Shyam",
+            "Singh",
+            "Soni",
+            "Sthapak",
+            "Sukla",
+            "Surve",
+            "Tanwar",
+            "Temre",
+            "Tripathi",
+            "Trivedi",
+            "Varma",
+            "Vishnu",
+            "Vishwakarma",
+            "Vyas",
+            "jain"
+          ]
+        },
+        {
+          "name": "marital_status",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "User's marital status represented as an integer code",
+          "options": []
+        },
+        {
+          "name": "mobile",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "User's mobile phone number",
+          "options": [
+            "12354",
+            "6206949375",
+            "6265198665",
+            "6265280188",
+            "6266069856",
+            "7049397663",
+            "7225854655",
+            "7225885538",
+            "7389562184",
+            "7692079540",
+            "7804047013",
+            "7828922226",
+            "7987978758",
+            "8103886301",
+            "8109828140",
+            "8181885273",
+            "8251980893",
+            "8305504778",
+            "8319164381",
+            "8435663412",
+            "8770630401",
+            "8839879591",
+            "8871618972",
+            "8959396039",
+            "8959567007",
+            "8964970090",
+            "9039904006",
+            "9098244022",
+            "9098734033",
+            "9109140866",
+            "9116545366",
+            "9182650248",
+            "9185712903",
+            "9196813976",
+            "9253881225",
+            "9378557181",
+            "9383839840",
+            "9394907936",
+            "9417077325",
+            "9425450506",
+            "9430352127",
+            "9486194254",
+            "9513436500",
+            "9518043467",
+            "9522307060",
+            "9545090076",
+            "9549461143",
+            "9560232875",
+            "9575108008",
+            "9584202226",
+            "9589620144",
+            "9591436454",
+            "9614394813",
+            "9614943451",
+            "9630482171",
+            "9630799919",
+            "9632071577",
+            "9655994684",
+            "9713376961",
+            "9713573126",
+            "9739717200",
+            "9749443516",
+            "9752675323",
+            "9754555070",
+            "9804654049",
+            "9812852239",
+            "9826034200",
+            "9826605644",
+            "9826800501",
+            "9836408049",
+            "9852005827",
+            "9872279555",
+            "9876787678",
+            "9889520019",
+            "9893134126",
+            "9893857833",
+            "9898079961",
+            "9899818487",
+            "9907081777",
+            "9915220367",
+            "9968751566",
+            "9977439374",
+            "9978799059",
+            "9987598756"
+          ]
+        }
+      ]
+    },
+    "user_leave_list": {
+      "description": "",
+      "fields": [
+        {
+          "name": "leave_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the leave request",
+          "options": []
+        },
+        {
+          "name": "approved_at",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Timestamp when the leave was approved, null if not approved",
+          "options": []
+        },
+        {
+          "name": "end_date",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "End date and time of the leave period",
+          "options": [
+            "2025-08-14 18:29:59",
+            "2025-08-15 18:29:59",
+            "2025-08-18 18:29:59",
+            "2025-08-19 18:29:59",
+            "2025-08-20 18:29:59",
+            "2025-08-21 18:29:59",
+            "2025-08-22 18:29:59",
+            "2025-08-25 18:29:59",
+            "2025-08-25T18:29:59",
+            "2025-08-26 18:29:59",
+            "2025-08-27 18:29:59",
+            "2025-08-28 18:29:59"
+          ]
+        },
+        {
+          "name": "first_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "First name of the user requesting leave",
+          "options": [
+            "Aadarsh",
+            "Aasif",
+            "Aayushi",
+            "Abhinandan",
+            "Ajay",
+            "Akash",
+            "Akshay",
+            "Anas",
+            "Anshul",
+            "Arpit",
+            "Arushi",
+            "Avinash",
+            "Ayush",
+            "Bhupendra",
+            "Chaitanya",
+            "Danish",
+            "Dev",
+            "Dharmendra",
+            "Girish",
+            "Gunjan",
+            "Hafees",
+            "Harshit",
+            "Jai",
+            "Kratika",
+            "Krishnakant",
+            "Lakshya",
+            "Manish",
+            "Mayank",
+            "Nilesh",
+            "Pallavi",
+            "Praveen",
+            "Prince",
+            "Rahul",
+            "Rohan",
+            "Rupali",
+            "Sagar",
+            "Shani",
+            "Shivani",
+            "Shubham",
+            "Sneha",
+            "Sourabh",
+            "Sujal",
+            "Sumit",
+            "Suraj",
+            "Tapan",
+            "Umesh",
+            "Vasu",
+            "Vikas",
+            "Vinod",
+            "Vivek",
+            "Yusuf"
+          ]
+        },
+        {
+          "name": "last_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Last name of the user requesting leave",
+          "options": [
+            "Ali",
+            "Bais",
+            "Baral",
+            "Bohra",
+            "Choudhary",
+            "Davda",
+            "Diwakar",
+            "Dubey",
+            "Dwivedi",
+            "Gupta",
+            "Harsola",
+            "Jain",
+            "Jaiswal",
+            "Joshi",
+            "Khan",
+            "Kumar",
+            "Lakhani",
+            "Lohar",
+            "Maheshwari",
+            "Mahoday",
+            "Malviya",
+            "Mehta",
+            "Modi",
+            "Mor",
+            "Namdev",
+            "Parmar",
+            "Patel",
+            "Patidar",
+            "Rathore",
+            "Sanpada",
+            "Sardar",
+            "Saxena",
+            "Sharma",
+            "Shrivastava",
+            "Singh",
+            "Soni",
+            "Sthapak",
+            "Tanwar",
+            "Tripathi",
+            "Trivedi",
+            "Vishwakarma",
+            "Vyas"
+          ]
+        },
+        {
+          "name": "leave_type_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Identifier for the type of leave",
+          "options": []
+        },
+        {
+          "name": "leave_type_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name or description of the leave type",
+          "options": []
+        },
+        {
+          "name": "reason",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Reason provided for the leave request",
+          "options": []
+        },
+        {
+          "name": "rejected_at",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Timestamp when the leave was rejected, null if not rejected",
+          "options": []
+        },
+        {
+          "name": "requested_at",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Timestamp when the leave was requested",
+          "options": [
+            "2025-08-14 05:00:01",
+            "2025-08-15 05:00:01",
+            "2025-08-15 05:00:02",
+            "2025-08-18 05:00:01",
+            "2025-08-19 05:00:01",
+            "2025-08-20 05:00:01",
+            "2025-08-21 05:00:02",
+            "2025-08-22 05:00:01",
+            "2025-08-25 05:00:01",
+            "2025-08-25 05:00:02",
+            "2025-08-25T05:00:01",
+            "2025-08-26 05:00:01",
+            "2025-08-27 05:00:01",
+            "2025-08-28 05:00:01"
+          ]
+        },
+        {
+          "name": "start_date",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Start date and time of the leave period",
+          "options": [
+            "2025-08-13 18:30:00",
+            "2025-08-14 18:30:00",
+            "2025-08-17 18:30:00",
+            "2025-08-18 18:30:00",
+            "2025-08-19 18:30:00",
+            "2025-08-20 18:30:00",
+            "2025-08-21 18:30:00",
+            "2025-08-24 18:30:00",
+            "2025-08-24T18:30:00",
+            "2025-08-25 18:30:00",
+            "2025-08-26 18:30:00",
+            "2025-08-27 18:30:00"
+          ]
+        },
+        {
+          "name": "status",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Current status of the leave request represented as an integer",
+          "options": []
+        },
+        {
+          "name": "user_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the user requesting leave",
+          "options": []
+        }
+      ]
+    }
+  },
+  "core_rules": {
+    "mode": "auto",
+    "custom_text": ""
+  },
+  "user_match_context": "",
+  "connection": {
+    "mongo_uri": "ec2-35-154-176-120.ap-south-1.compute.amazonaws.com:27017",
+    "mongo_db": "stg_cv_live_rag_data"
+  },
+  "user_access": {
+    "Manish": [
+      "chat_history",
+      "Cricket",
+      "mycollection"
+    ],
+    "sujal": [
+      "chat_history",
+      "Cricket"
+    ],
+    "Praveen": [
+      "activity_list",
+      "holiday_list",
+      "user_list",
+      "user_leave_list"
+    ]
+  }
+}

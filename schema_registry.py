@@ -85,3 +85,42 @@ def set_user_match_context(text: str) -> Dict:
     reg["user_match_context"] = text or ""
     save_registry(reg); return reg
 
+# User access control functions
+def get_user_access_config(reg: Dict | None = None) -> Dict:
+    """Get the user access configuration from registry."""
+    reg = reg or load_registry()
+    if "user_access" not in reg:
+        reg["user_access"] = {}  # Initialize if not exists
+        save_registry(reg)
+    return reg.get("user_access", {})
+
+def set_user_access(user_id: str, collections: List[str]) -> Dict:
+    """Set which collections a user can access."""
+    reg = load_registry()
+    if "user_access" not in reg:
+        reg["user_access"] = {}
+    reg["user_access"][user_id] = collections
+    save_registry(reg)
+    return reg
+
+def delete_user_access(user_id: str) -> Dict:
+    """Remove a user's access configuration."""
+    reg = load_registry()
+    if "user_access" in reg and user_id in reg["user_access"]:
+        del reg["user_access"][user_id]
+        save_registry(reg)
+    return reg
+
+def get_user_collections(user_id: str, reg: Dict | None = None) -> List[str]:
+    """Get collections a user has access to. If user doesn't exist or has no
+    specific permissions, return an empty list (no collections)."""
+    reg = reg or load_registry()
+    user_access = reg.get("user_access", {})
+    # Return user's authorized collections or empty list if not found
+    return user_access.get(user_id, [])
+
+def get_all_users(reg: Dict | None = None) -> List[str]:
+    """Get list of all users with access configurations."""
+    reg = reg or load_registry()
+    return list(reg.get("user_access", {}).keys())
+

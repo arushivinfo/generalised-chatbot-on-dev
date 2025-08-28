@@ -15,7 +15,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
-from cache_memory import get_last_memories
+from cache_memory import get_last_memories, get_memory_prompt
 
 from typing import List, Optional
 from langchain_core.callbacks import BaseCallbackHandler
@@ -23,7 +23,10 @@ from langchain_core.callbacks import BaseCallbackHandler
 from difflib import get_close_matches
 # search_agent_new.py  (only showing relevant edits)
 from core_rules import render_core_rules, render_match_context, render_schema_section_all
-from schema_registry import load_registry, get_all_fields, get_collection_names, get_descriptions
+from schema_registry import (
+    load_registry, get_all_fields, get_collection_names, 
+    get_descriptions, get_user_collections, get_user_access_config
+)
 
 def _extract_json_spec(text: str) -> dict:
     """
@@ -155,7 +158,8 @@ class EntityFilter(BaseModel):
 class EntityQuery(BaseModel):
     filters: List[EntityFilter]
     sort:   Dict[str, str] = {}
-    limit:  int = 10
+    limit:  int = 20
+
 
 
 class CollectionQuery(EntityQuery):
@@ -204,21 +208,27 @@ def _normalise_filter(filt: dict, collection: str, invalid_fields: Optional[List
     out = filt.copy()
 
     # 1) unwrap single-element lists so $regex always gets a string
-    # unwrap ["value"] -> "value"
     if isinstance(out.get("value"), list) and len(out["value"]) == 1:
         out["value"] = out["value"][0]
 
-    # Validate against SEARCHABLE_FIELDS options
-    # for coll_fields in SEARCHABLE_FIELDS.values():
-    #     for field_meta in coll_fields:
-    #         if field_meta["name"] == out["field"] and "options" in field_meta:
-    #             if out["value"] not in field_meta["options"]:
-    #                 if invalid_fields is not None:
-    #                     invalid_fields.append((out["field"], out["value"]))
-    #                 else:
-    #                     print(f"⚠️ Invalid value for {out['field']}: {out['value']} — ignoring this filter.")
-    #                 return None
-
+    # 2) Handle date normalization for range queries
+    if out.get("operation") == "range" and isinstance(out.get("value"), dict):
+        # Get field metadata to check if it's a date field
+        for field_meta in SEARCHABLE_FIELDS.get(collection, []):
+            if field_meta["name"] == out["field"] and field_meta["type"] == "date":
+                # Normalize date ranges to include full day
+                for op in ["$gte", "$gt"]:
+                    if op in out["value"] and isinstance(out["value"][op], str):
+                        # If the date doesn't have time component, set to beginning of day
+                        if len(out["value"][op]) <= 10:  # YYYY-MM-DD format
+                            out["value"][op] = f"{out['value'][op].split()[0]}T00:00:00"
+                
+                for op in ["$lte", "$lt"]:
+                    if op in out["value"] and isinstance(out["value"][op], str):
+                        # If the date doesn't have time component, set to end of day
+                        if len(out["value"][op]) <= 10:  # YYYY-MM-DD format
+                            out["value"][op] = f"{out['value'][op].split()[0]}T23:59:59"
+                break
 
     # 3) fuzzy match for allowed options
     for field_meta in SEARCHABLE_FIELDS.get(collection, []):
@@ -260,32 +270,11 @@ TOOLS = [search_collection]
 
 def _run_query(collection: str, spec: Dict[str, Any]) -> QueryResult:
     try:
-        parsed    = EntityQuery(**spec)
-        # Accept either a role key or a real collection name:
-        coll_name   = collection
-        coll        = db[coll_name]
+        parsed = EntityQuery(**spec)
+        coll_name = collection
+        coll = db[coll_name]
         mongo_filter = {}
         regular_filters = []
-
-        # # ---------- filters ----------
-        # for f in parsed.filters:
-        #     fld_meta = next((m for m in SEARCHABLE_FIELDS[coll_name]
-        #                      if m["name"] == f.field), None)
-        #     if not fld_meta or f.operation not in fld_meta["operations"]:
-        #         return {"ok": False,
-        #                 "error": f"Invalid field/operation: {f.field},{f.operation}",
-        #                 "filter": mongo_filter}
-
-        #     if f.operation == "regex":
-        #         mongo_filter[f.field] = {"$regex": f.value, "$options": "i"}
-        #     elif f.operation == "keyword":
-        #         mongo_filter[f.field] = {"$elemMatch": {"$regex": f.value,
-        #                                                 "$options": "i"}}
-        #     elif f.operation == "range":
-        #         rng = ( {op: datetime.fromisoformat(v) if isinstance(v, str) else v
-        #                  for op, v in f.value.items()}
-        #                 if fld_meta["type"] == "date" else f.value )
-        #         mongo_filter[f.field] = rng
 
         # ---------- filters ----------
         for f in parsed.filters:
@@ -302,19 +291,35 @@ def _run_query(collection: str, spec: Dict[str, Any]) -> QueryResult:
             elif f.operation == "keyword":
                 regular_filters.append({f.field: {"$elemMatch": {"$regex": f.value, "$options": "i"}}})
             elif f.operation == "range":
-                rng = (
-                    {op: datetime.fromisoformat(v) if isinstance(v, str) else v
-                    for op, v in f.value.items()}
-                    if fld_meta["type"] == "date" else f.value
-                )
-                regular_filters.append({f.field: rng})
+                if fld_meta["type"] == "date":
+                    # Handle date conversion with flexible formats
+                    rng = {}
+                    for op, v in f.value.items():
+                        if isinstance(v, str):
+                            try:
+                                # Try to parse date string in various formats
+                                if len(v) <= 10:  # YYYY-MM-DD
+                                    if op in ["$gte", "$gt"]:
+                                        # For string comparison, format consistently
+                                        rng[op] = f"{v} 00:00:00"
+                                    else:  # $lte, $lt
+                                        rng[op] = f"{v} 23:59:59"
+                                else:
+                                    rng[op] = v
+                            except ValueError:
+                                # Fallback to original value
+                                rng[op] = v
+                        else:
+                            rng[op] = v
+                    regular_filters.append({f.field: rng})
+                else:
+                    regular_filters.append({f.field: f.value})
 
         # Final mongo_filter
         if len(regular_filters) == 1:
             mongo_filter = regular_filters[0]
         elif len(regular_filters) > 1:
             mongo_filter = { "$and": regular_filters }
-
 
         # ---------- sort ----------
         sort_clause = [(fld, 1 if d.lower() == "asc" else -1)
@@ -325,14 +330,14 @@ def _run_query(collection: str, spec: Dict[str, Any]) -> QueryResult:
                 return {"ok": False,
                         "error": f"Cannot sort on field: {fld}",
                         "filter": mongo_filter}
-
-        # cursor = _apply_sort(
-        #     coll.find(mongo_filter, {"summary": 1, "_id": 0}),
-        #     sort_clause
-        # ).limit(parsed.limit)
         
         # Always return full objects (no summary-only projection)
         projection = {"_id": 0}
+
+        # DEBUG: Print direct MongoDB check before running our query
+        print(f"\n[DIRECT DB CHECK] Running query on {coll_name} with filter:", json.dumps(mongo_filter, default=str))
+        check_count = coll.count_documents(mongo_filter)
+        print(f"[DIRECT DB CHECK] Documents found: {check_count}")
 
         cursor = _apply_sort(
             coll.find(mongo_filter, projection),
@@ -341,13 +346,17 @@ def _run_query(collection: str, spec: Dict[str, Any]) -> QueryResult:
 
         docs = list(cursor)
         if not docs:
-            return {"ok": False, "error": "No results found",
+            # Extra debug info for empty results
+            return {"ok": False, "error": f"No results found (confirmed count: {check_count})",
                     "filter": mongo_filter}
 
         safe_json = json.loads(json.dumps(docs, default=_safe))
         return {"ok": True, "docs": safe_json, "filter": mongo_filter}
 
     except Exception as exc:
+        import traceback
+        print(f"Query error: {exc}")
+        print(traceback.format_exc())
         return {"ok": False, "error": f"Query failed: {exc}",
                 "filter": mongo_filter}
 
@@ -406,7 +415,7 @@ You are an expert MongoDB query planner for three collections:
 Only use the operations listed for each field above.
 If a field has a list of allowed options (shown after →), you must use one of those exact values for that field. Do not invent or assume values not in the list.
 
-#Also use the memory context if available, if any of the last 3 answers say "no data available" or similar, ignore that answer for reasoning.
+#Also use the memory context if available (Always if there is any follow up question(detect yourself)).
 "If the user query contains pronouns (e.g., 'he', 'him', 'his'), 
 always resolve them to the correct entity using the most recent relevant memory context. 
 Never use a pronoun as a value in any query field."
@@ -420,7 +429,7 @@ Your job:
      "collection": "collection1" | "collection2" | "colection3",
      "filters": [{{{{"field": "...", "operation": "...", "value": ...}}}}, ...],
      "sort":    {{{{"field_name": "asc|desc"}}}},
-     "limit":   <int - default 10>
+     "limit":   <int - default 100>
    }}}}
    when only one collection is needed, **or**
    {{{{
@@ -429,13 +438,13 @@ Your job:
          "collection": "...",
          "filters": [{{{{"field": "...", "operation": "...", "value": ...}}}}, ...],
          "sort": {{{{"field_name": "asc|desc"}}}},
-         "limit": <int - default 10>
+         "limit": <int - default 100>
        }}}},
        {{{{
          "collection": "...",
          "filters": [{{{{"field": "...", "operation": "...", "value": ...}}}}, ...],
          "sort": {{{{"field_name": "asc|desc"}}}},
-         "limit": <int - default 10>
+         "limit": <int - default 100>
        }}}}
      ]
    }}}}
@@ -503,19 +512,7 @@ def get_llm():
     # Newer langchain-openai uses `api_key` (not openai_api_key)
     return ChatOpenAI(model=OPENAI_MODEL, api_key=api_key)
 
-def get_memory_prompt(n):
-    memories = get_last_memories(n)
-    mem_text = "\n".join(
-        [f"Previous Q: {m['query']}\nPrevious A: {m['answer']}" for m in memories if "no data" not in m['answer'].lower()]
-    )
-    return (
-        "### RECENT MEMORY CONTEXT\n"
-        "If any of the last answers below say 'no data available' or similar, ignore that answer for reasoning.\n"
-        f"{mem_text}\n"
-        "When the user query contains pronouns like 'he', 'him', 'his''इसको','इसके'(any language), always resolve them to the correct player name using the most recent relevant memory. For example, if the last answer was about 'X', and the user now asks 'his last 5 matches', use 'X' as the value for 'player_name'.\n"
-        "Never use a pronoun as a value in any query field. For example, if the last answer was about 'Virat Kohli', and the user now asks 'How many runs did he make?', use 'Virat Kohli' as the value for 'player_name'.\n"
-        "The most recent memory (highest weight) is listed first.\n"
-    )
+# Using get_memory_prompt from cache_memory.py instead of local implementation
 
 
 # If you currently build PROMPT via ChatPromptTemplate, keep that; just swap in variables:
@@ -543,11 +540,11 @@ PROMPT = ChatPromptTemplate.from_messages([
 # ────────────────────────────────
 # 7. User-facing wrapper
 # ────────────────────────────────
-def run_search_agent(
+def run_search_agent(user_id: str, team_id: str,
     query: str,
-    history: None,
     callbacks: Optional[List[BaseCallbackHandler]] = None,
     debug: bool = False,
+    session_id: Optional[str] = None,
 ) -> tuple[dict, str, Dict[str, Any]]:        # spec, answer, dbg
 
     """
@@ -560,11 +557,45 @@ def run_search_agent(
     global ALL_FIELDS, DESCRIPTIONS, OPTIONS_MAX
     global SEARCHABLE_FIELDS, CORE_RULES_TEXT, SCHEMA_SECTION
 
+    # Get all fields and descriptions from the registry
     ALL_FIELDS, DESCRIPTIONS, OPTIONS_MAX = _load_schema_live()
+    
+    # Store original collection data to check for attempted access to restricted collections
+    original_collections = set(ALL_FIELDS.keys())
+    
+    # Filter collections based on user access if a user_id is provided
+    if user_id and user_id != "anonymous":
+        # Get collections the user has access to
+        user_collections = get_user_collections(user_id)
+        
+        # Filter ALL_FIELDS to only include collections the user has access to
+        if user_collections:  # Only filter if user has specific permissions
+            ALL_FIELDS = {coll: fields for coll, fields in ALL_FIELDS.items() 
+                         if coll in user_collections}
+            DESCRIPTIONS = {coll: desc for coll, desc in DESCRIPTIONS.items() 
+                           if coll in user_collections}
+            
+            # Log filtered collections for debugging
+            print(f"User {user_id} has access to collections: {user_collections}")
+        else:
+            print(f"User {user_id} has no collection permissions defined")
+            # If user has no permissions but permissions are being enforced, they have no access
+            if get_user_access_config():  # Only restrict if access control is active
+                ALL_FIELDS = {}  # No collections available
+                DESCRIPTIONS = {}
+    else:
+        print("No user_id provided or anonymous user - using all collections")
+        
+    # Store information about restricted collections
+    restricted_collections = original_collections - set(ALL_FIELDS.keys())
+    
+    # Update searchable fields and collection names after filtering
     SEARCHABLE_FIELDS = ALL_FIELDS
-    COLLECTION_NAMES = list(ALL_FIELDS.keys())        # NEW
-    SCHEMA_SECTION  = render_schema_section_all(ALL_FIELDS, DESCRIPTIONS, OPTIONS_MAX)
-    CORE_RULES_TEXT = render_core_rules(COLLECTION_NAMES)  # REPLACE old CORE_COLL_MAP call
+    COLLECTION_NAMES = list(ALL_FIELDS.keys())
+    
+    # Generate schema section and core rules based on filtered collections
+    SCHEMA_SECTION = render_schema_section_all(ALL_FIELDS, DESCRIPTIONS, OPTIONS_MAX)
+    CORE_RULES_TEXT = render_core_rules(COLLECTION_NAMES)
     
 
     # -------- always-defined placeholders --------
@@ -582,7 +613,8 @@ def run_search_agent(
    
 
     # STEP 2: Create prompt with history and query
-    prompt = SYSTEM_PROMPT.replace("<CONVERSATION_HISTORY>", history)
+    memory_prompt = get_memory_prompt(3, user_id, team_id, session_id)
+    prompt = SYSTEM_PROMPT.replace("<CONVERSATION_HISTORY>", memory_prompt)
     prompt_template = ChatPromptTemplate.from_messages([
         ("system", prompt),
         ("system", CORE_RULES_TEXT),
@@ -632,18 +664,40 @@ def run_search_agent(
     qspec = raw_spec
 
     # Determine whether we have a single query or multiple queries
+    if isinstance(raw_spec, dict) and "error" in raw_spec:
+        answer = f"⚠️ LLM error: {raw_spec['error']}"
+        return {}, answer, debug_blob
+        
+    # Determine whether we have a single query or multiple queries
     if isinstance(raw_spec, dict) and "queries" in raw_spec:
-        multi = MultiEntityQuery(**raw_spec)
-        query_specs = [q.dict() for q in multi.queries]
-        spec = {"queries": query_specs}
+        try:
+            multi = MultiEntityQuery(**raw_spec)
+            query_specs = [q.dict() for q in multi.queries]
+            spec = {"queries": query_specs}
+        except Exception as e:
+            answer = f"⚠️ Invalid multi-query format: {str(e)}\n```json\n{json.dumps(raw_spec, indent=2)}\n```"
+            return {}, answer, debug_blob
     elif isinstance(raw_spec, list):
-        multi = MultiEntityQuery(queries=[CollectionQuery(**q) for q in raw_spec])
-        query_specs = [q.dict() for q in multi.queries]
-        spec = {"queries": query_specs}
+        try:
+            multi = MultiEntityQuery(queries=[CollectionQuery(**q) for q in raw_spec])
+            query_specs = [q.dict() for q in multi.queries]
+            spec = {"queries": query_specs}
+        except Exception as e:
+            answer = f"⚠️ Invalid query list format: {str(e)}\n```json\n{json.dumps(raw_spec, indent=2)}\n```"
+            return {}, answer, debug_blob
     else:
-        single = CollectionQuery(**raw_spec)
-        spec = single.dict()
-        query_specs = [spec]
+        # Check if required fields are present before creating CollectionQuery
+        if not isinstance(raw_spec, dict) or "collection" not in raw_spec or "filters" not in raw_spec:
+            answer = f"⚠️ Missing required fields 'collection' and/or 'filters' in spec:\n```json\n{json.dumps(raw_spec, indent=2)}\n```"
+            return {}, answer, debug_blob
+            
+        try:
+            single = CollectionQuery(**raw_spec)
+            spec = single.dict()
+            query_specs = [spec]
+        except Exception as e:
+            answer = f"⚠️ Invalid single-query format: {str(e)}\n```json\n{json.dumps(raw_spec, indent=2)}\n```"
+            return {}, answer, debug_blob
 
     answer_parts = []
     chosen_collections: List[str] = []
@@ -658,7 +712,11 @@ def run_search_agent(
             return spec, answer, debug_blob
         # Validate against known schema (admin-registered)
         if coll_name not in SEARCHABLE_FIELDS:
-            answer = f"⚠️ Unknown collection: {coll_name}"
+            # Check if the collection exists but the user doesn't have access
+            if coll_name in restricted_collections:
+                answer = f"⚠️ Access denied: You do not have permission to access the '{coll_name}' collection."
+            else:
+                answer = f"⚠️ Unknown collection: {coll_name}"
             return spec, answer, debug_blob
 
 
@@ -681,9 +739,12 @@ def run_search_agent(
         # 2) ALWAYS run each query, regardless of filters
         res = _run_query(coll_name, qspec)
         print(f"\n[DEBUG] Result for {coll_name}:", json.dumps(res, indent=2, default=str))
-
+        filters_debug.append(res.get("filter", {}))
         # 3) Handle errors without breaking out
         if not res.get("ok"):
+            # Still add the collection to chosen_collections even if no results
+            chosen_collections.append(coll_name)
+            
             debug_blob.setdefault("errors", []).append({
                 "collection": coll_name,
                 "error":      res.get("error"),
@@ -691,9 +752,8 @@ def run_search_agent(
             })
             continue
 
-        # 4) Accumulate successful results
+        # 5) Accumulate successful results
         chosen_collections.append(coll_name)
-        filters_debug.append(res.get("filter", {}))
         results_debug.append(res)
 
         # Always output full object(s)
@@ -778,10 +838,12 @@ def run_search_agent(
     if invalid_fields:
         debug_blob["invalid_fields"] = invalid_fields
 
+    # Add information about restricted collections to debug_blob
     debug_blob.update({
         "filters": filters_debug,
         "chosen_collections": chosen_collections,
         "results": results_debug,
+        "restricted_collections": list(restricted_collections) if restricted_collections else [],
     })
 
     # answer = "\n".join(answer_parts)
@@ -827,7 +889,7 @@ if __name__ == "__main__":
     ]
     for q in TEST_QUERIES:
         print("\n🠚  ", q)
-        spec, answer, dbg = run_search_agent(q, history="")
+        spec, answer, dbg = run_search_agent("test_user", "test_team", q)
 
         # overwrite the log file with this run’s data
         log_entry = {
