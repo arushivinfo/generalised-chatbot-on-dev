@@ -193,6 +193,47 @@ def heuristic_schema(df: pd.DataFrame, options_max: int = 20, max_opt_len: int =
 
 
 
+def get_mongo_collections(uri, db_name):
+    """Fetch all collection names from the specified MongoDB database."""
+    try:
+        client = MongoClient(
+            uri,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+            socketTimeoutMS=5000,
+            uuidRepresentation="standard",
+        )
+        client.admin.command("ping")  # Verify connection
+        
+        # Get all collection names
+        collections = client[db_name].list_collection_names()
+        return collections, None
+    except Exception as e:
+        return [], f"Error connecting to MongoDB: {e}"
+
+
+def fetch_collection_sample(uri, db_name, collection_name, limit=100):
+    """Fetch a sample of documents from the specified collection."""
+    try:
+        client = MongoClient(
+            uri,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+            socketTimeoutMS=5000,
+            uuidRepresentation="standard",
+        )
+        client.admin.command("ping")
+        pipe = [
+            {"$match": {}},
+            {"$sample": {"size": int(limit)}},
+            {"$project": {"_id": 0}},
+        ]
+        df = pd.DataFrame(list(client[db_name][collection_name].aggregate(pipe)))
+        return df, None
+    except Exception as e:
+        return None, f"Error fetching data: {e}"
+
+
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
 if ADMIN_TOKEN:
     if st.text_input("Admin token", type="password") != ADMIN_TOKEN:
@@ -221,6 +262,18 @@ with c2:
             set_connection_config(uri_input, db_input)
             st.success(f"Saved! mongo_db = **{db_input.strip()}**")
             st.toast("Connection settings updated.", icon="✅")
+            
+            # Store connection in session state for later use
+            st.session_state.mongo_uri = uri_input
+            st.session_state.mongo_db = db_input
+            
+            # Automatically fetch collection names
+            collections, error = get_mongo_collections(uri_input, db_input)
+            if error:
+                st.error(error)
+            else:
+                st.session_state.available_collections = collections
+                st.success(f"Found {len(collections)} collections in database {db_input}")
 
 # Show the effective connection (for sanity)
 st.code(json.dumps(get_connection_config(load_registry()), indent=2))
@@ -228,7 +281,7 @@ st.divider()
 
 
 st.title("Admin • Collections & Schemas")
-tab_schema, tab_rules = st.tabs(["Collections & Schemas", "Core Rules & Prompt"])
+tab_schema, tab_rules, tab_access = st.tabs(["Collections & Schemas", "Core Rules & Prompt", "User Access Control"])
 
 with tab_schema:
 
@@ -242,7 +295,7 @@ with tab_schema:
 
     uri = st.text_input(
         "Mongo URI",
-        value=os.getenv("MONGO_URI","mongodb://127.0.0.1:27017"),
+        value=os.getenv("MONGO_URI",""),
         help="Use 127.0.0.1 to force IPv4. If this UI runs in Docker, try host.docker.internal (Mac/Win) or 172.17.0.1 (Linux)."
     )
 
@@ -266,7 +319,7 @@ with tab_schema:
     df = None
 
     if source == "Mongo":
-        db  = st.text_input("Database", os.getenv("MONGO_DB", "sports_feed_stg"))
+        db  = st.text_input("Database", os.getenv("MONGO_DB", ""))
         lim = st.slider("Rows", 10, 500, 100)
 
         if st.button("Fetch"):
@@ -520,3 +573,151 @@ with tab_rules:
     st.code(prompt_preview, language="markdown")
 
     st.info("Tip: In the Chat UI, open “Prompt sent to LLM” to see the **response-gen** prompt for a given question.")
+
+# Import user access functions
+from schema_registry import (
+    get_user_access_config, set_user_access, delete_user_access,
+    get_user_collections, get_all_users
+)
+
+with tab_access:
+    st.subheader("User Access Control")
+    st.write("Manage which collections each user can access.")
+    
+    # Get current registry and available collections
+    reg = load_registry()
+    all_collections = list(reg.get("collections", {}).keys())
+    
+    # Display no collections warning if needed
+    if not all_collections:
+        st.warning("No collections available. Add collections in the 'Collections & Schemas' tab first.")
+    
+    # Get current user access configuration
+    user_access_config = get_user_access_config()
+    
+    # Section for adding/editing user access
+    st.markdown("### Add or Edit User Access")
+    
+    # User selection or creation
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        # Get existing users plus option for new user
+        existing_users = get_all_users()
+        user_options = ["Add New User"] + existing_users
+        selected_user_option = st.selectbox("Select User", user_options)
+        
+        if selected_user_option == "Add New User":
+            # New user input
+            user_id = st.text_input("New User ID", placeholder="Enter user ID or name")
+            is_new_user = True
+            st.info("New users are granted access to all collections by default. You can adjust access as needed.")
+        else:
+            # Existing user
+            user_id = selected_user_option
+            is_new_user = False
+    
+    # Only show the rest if collections exist
+    if all_collections:
+        # Collection access selection
+        st.markdown("#### Select Collections")
+        st.write("Choose which collections this user can access:")
+        
+        # Get current access for this user
+        user_collections = get_user_collections(user_id) if not is_new_user else all_collections  # Default all collections for new users
+        
+        # Add select/deselect all buttons
+        col1, col2 = st.columns([1, 5])
+        with col1:
+            if st.button("Select All"):
+                st.session_state.select_all_collections = True
+                st.session_state.deselect_all_collections = False
+                st.rerun()
+            if st.button("Deselect All"):
+                st.session_state.select_all_collections = False
+                st.session_state.deselect_all_collections = True
+                st.rerun()
+        
+        # Initialize session state for select/deselect all
+        if 'select_all_collections' not in st.session_state:
+            st.session_state.select_all_collections = False
+        if 'deselect_all_collections' not in st.session_state:
+            st.session_state.deselect_all_collections = False
+            
+        # Create checkboxes for each collection
+        selected_collections = []
+        for collection in all_collections:
+            # Handle select all/deselect all
+            if st.session_state.select_all_collections:
+                is_selected = True
+            elif st.session_state.deselect_all_collections:
+                is_selected = False
+            else:
+                is_selected = collection in user_collections
+                
+            if st.checkbox(collection, value=is_selected, key=f"access_{user_id}_{collection}"):
+                selected_collections.append(collection)
+        
+        # Reset select/deselect flags after they've been applied
+        if st.session_state.select_all_collections or st.session_state.deselect_all_collections:
+            st.session_state.select_all_collections = False
+            st.session_state.deselect_all_collections = False
+        
+        # Save button
+        if st.button("Save User Access", type="primary"):
+            if user_id:
+                set_user_access(user_id, selected_collections)
+                st.success(f"Access settings saved for user '{user_id}'")
+                st.toast(f"User '{user_id}' now has access to {len(selected_collections)} collections", icon="✅")
+            else:
+                st.error("Please enter a User ID")
+        
+        # Current access summary
+        st.divider()
+        st.markdown("### Current User Access")
+        
+        user_access_df = []
+        for u_id, collections in user_access_config.items():
+            user_access_df.append({
+                "User ID": u_id,
+                "Collections": ", ".join(collections) if collections else "None",
+                "Count": len(collections)
+            })
+        
+        if user_access_df:
+            st.dataframe(
+                pd.DataFrame(user_access_df),
+                use_container_width=True,
+                column_config={
+                    "User ID": st.column_config.TextColumn("User ID"),
+                    "Collections": st.column_config.TextColumn("Accessible Collections"),
+                    "Count": st.column_config.NumberColumn("Count")
+                }
+            )
+        else:
+            st.info("No user access settings defined yet.")
+        
+        # Delete user section
+        st.divider()
+        st.markdown("### Delete User Access")
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            user_to_delete = st.selectbox(
+                "Select User to Delete",
+                [""] + existing_users,
+                index=0,
+                placeholder="Select a user"
+            )
+        
+        with col2:
+            st.markdown("&nbsp;")  # Spacer
+            st.markdown("&nbsp;")  # Spacer
+            if user_to_delete and st.button("Delete User", type="secondary"):
+                delete_user_access(user_to_delete)
+                st.success(f"Access settings deleted for user '{user_to_delete}'")
+                st.toast(f"User '{user_to_delete}' removed", icon="🗑️")
+                st.rerun()
+    else:
+        st.info("Please add collections in the 'Collections & Schemas' tab before setting up user access.")
+
+
