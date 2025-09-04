@@ -19,6 +19,14 @@ import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
+# Configure Streamlit for full width
+st.set_page_config(
+    page_title="Admin Schema UI",
+    page_icon="⚙️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 def _to_safe_text(x):
     """Coerce any value to a displayable string without crashing on bytes/NaN."""
     # Treat missing values early
@@ -193,181 +201,274 @@ def heuristic_schema(df: pd.DataFrame, options_max: int = 20, max_opt_len: int =
 
 
 
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
-if ADMIN_TOKEN:
-    if st.text_input("Admin token", type="password") != ADMIN_TOKEN:
-        st.stop()
+def get_mongo_collections(uri, db_name):
+    """Fetch all collection names from the specified MongoDB database."""
+    try:
+        client = MongoClient(
+            uri,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+            socketTimeoutMS=5000,
+            uuidRepresentation="standard",
+        )
+        client.admin.command("ping")  # Verify connection
+        
+        # Get all collection names
+        collections = client[db_name].list_collection_names()
+        return collections, None
+    except Exception as e:
+        return [], f"Error connecting to MongoDB: {e}"
+
+
+def fetch_collection_sample(uri, db_name, collection_name, limit=100):
+    """Fetch a sample of documents from the specified collection."""
+    try:
+        client = MongoClient(
+            uri,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+            socketTimeoutMS=5000,
+            uuidRepresentation="standard",
+        )
+        client.admin.command("ping")
+        pipe = [
+            {"$match": {}},
+            {"$sample": {"size": int(limit)}},
+            {"$project": {"_id": 0}},
+        ]
+        df = pd.DataFrame(list(client[db_name][collection_name].aggregate(pipe)))
+        return df, None
+    except Exception as e:
+        return None, f"Error fetching data: {e}"
+
+
+# Remove authentication requirement from admin UI - this is for configuration only
+# Authentication and RLS should be handled in the chat frontend where users query data
+
+# Initialize session state for connection
+if "connection_established" not in st.session_state:
+    st.session_state.connection_established = False
 
 # ─────────────────────────────────────────────────────────────
-# Connection (MongoDB) — saved in schema_registry.json
+
 # ─────────────────────────────────────────────────────────────
-st.subheader("Database Connection")
+# Centralized Connection Management
+# ─────────────────────────────────────────────────────────────
+if not st.session_state.connection_established:
+    st.title("🔧 Admin Schema Management")
+    st.subheader("Database Connection Setup")
+    
+    cfg = get_connection_config(load_registry())
+    default_uri = cfg.get("mongo_uri", "mongodb://127.0.0.1:27017")
+    default_db = cfg.get("mongo_db", "test")
+    
+    with st.container():
+        col1, col2, col3 = st.columns([2, 2, 1])
+        
+        with col1:
+            uri_input = st.text_input(
+                "MongoDB URI", 
+                value=default_uri, 
+                placeholder="mongodb://host:27017",
+                help="Use 127.0.0.1 to force IPv4. If this UI runs in Docker, try host.docker.internal (Mac/Win) or 172.17.0.1 (Linux)."
+            )
+        
+        with col2:
+            db_input = st.text_input(
+                "Database Name", 
+                value=default_db, 
+                placeholder="sample_mflix"
+            )
+        
+        with col3:
+            st.markdown("&nbsp;")  # Spacer
+            if st.button("🔗 Connect & Continue", type="primary", use_container_width=True):
+                if not uri_input.strip() or not db_input.strip():
+                    st.error("Please provide both MongoDB URI and Database Name.")
+                else:
+                    # Test connection
+                    collections, error = get_mongo_collections(uri_input.strip(), db_input.strip())
+                    if error:
+                        st.error(f"Connection failed: {error}")
+                    else:
+                        # Save connection and proceed
+                        set_connection_config(uri_input.strip(), db_input.strip())
+                        st.session_state.mongo_uri = uri_input.strip()
+                        st.session_state.mongo_db = db_input.strip()
+                        st.session_state.available_collections = collections
+                        st.session_state.connection_established = True
+                        st.success(f"✅ Connected! Found {len(collections)} collections in database '{db_input.strip()}'")
+                        st.rerun()
 
-cfg = get_connection_config(load_registry())
-default_uri = cfg.get("mongo_uri", "mongodb://127.0.0.1:27017")
-default_db  = cfg.get("mongo_db",  "test")
+    # Show current saved connection for reference
+    current_config = get_connection_config(load_registry())
+    if current_config.get("mongo_uri"):
+        st.info(f"💾 Saved connection: {current_config['mongo_db']} @ {current_config['mongo_uri']}")
+    
+    st.stop()  # Don't show the rest until connected
 
-c1, c2 = st.columns([3, 1])
-with c1:
-    uri_input = st.text_input("Mongo URI", value=default_uri, placeholder="mongodb://host:27017")
-    db_input  = st.text_input("Database Name", value=default_db, placeholder="sample_mflix")
-with c2:
-    st.markdown(" ")
-    st.markdown(" ")
-    if st.button("Save Connection", type="primary"):
-        if not uri_input.strip() or not db_input.strip():
-            st.error("Please provide both Mongo URI and Database Name.")
-        else:
-            set_connection_config(uri_input, db_input)
-            st.success(f"Saved! mongo_db = **{db_input.strip()}**")
-            st.toast("Connection settings updated.", icon="✅")
+# Show connection status in sidebar
+with st.sidebar:
+    st.success(f"🟢 Connected to: **{st.session_state.mongo_db}**")
+    st.caption(f"URI: {st.session_state.mongo_uri}")
+    if st.button("🔄 Change Connection"):
+        st.session_state.connection_established = False
+        st.rerun()
+    
+    # Show available collections
+    if "available_collections" in st.session_state:
+        st.subheader("Available Collections")
+        for coll in st.session_state.available_collections[:10]:  # Show first 10
+            st.caption(f"📄 {coll}")
+        if len(st.session_state.available_collections) > 10:
+            st.caption(f"... and {len(st.session_state.available_collections) - 10} more")
 
-# Show the effective connection (for sanity)
-st.code(json.dumps(get_connection_config(load_registry()), indent=2))
-st.divider()
+# ─────────────────────────────────────────────────────────────
+# Main Application (Full Width)
+# ─────────────────────────────────────────────────────────────
+st.title("🔧 Admin • Collections & Schemas")
 
+# Keep sample & schema in state so clicks survive reruns
+if "sample_df" not in st.session_state:
+    st.session_state.sample_df = None
+if "schema_fields" not in st.session_state:
+    st.session_state.schema_fields = []
 
-st.title("Admin • Collections & Schemas")
-tab_schema, tab_rules = st.tabs(["Collections & Schemas", "Core Rules & Prompt"])
+tab_schema, tab_rules, tab_access, tab_rls = st.tabs(["📊 Collections & Schemas", "📝 Core Rules & Prompt", "👥 User Access Control", "🔒 Row-Level Security"])
 
 with tab_schema:
+    # Global options cap control (moved to top for better UX)
+    with st.expander("⚙️ Global Settings", expanded=False):
+        reg = load_registry()
+        cap_val = st.number_input(
+            "Options cap (used when rendering prompt)",
+            min_value=1,
+            value=int(reg.get("options_max", 20)),
+            help="Categories/options per field will be clipped to this number in prompt bullets."
+        )
+        if st.button("💾 Save Options Cap"):
+            set_options_max(cap_val)
+            st.success("✅ Saved options cap")
 
-    # Keep sample & schema in state so clicks survive reruns
-    if "sample_df" not in st.session_state:
-        st.session_state.sample_df = None
-    if "schema_fields" not in st.session_state:
-        st.session_state.schema_fields = []
-
-    reg = load_registry()
-
-    uri = st.text_input(
-        "Mongo URI",
-        value=os.getenv("MONGO_URI","mongodb://127.0.0.1:27017"),
-        help="Use 127.0.0.1 to force IPv4. If this UI runs in Docker, try host.docker.internal (Mac/Win) or 172.17.0.1 (Linux)."
-    )
-
-    # global options cap control
-    cap_val = st.number_input(
-        "Options cap (used when rendering prompt)",
-        min_value=1,
-        value=int(reg.get("options_max", 20)),
-        help="Categories/options per field will be clipped to this number in prompt bullets."
-    )
-    if st.button("Save options cap"):
-        set_options_max(cap_val)
-        st.success("Saved options cap")
-
-    st.header("Add / Edit Collection")
-    coll_name = st.text_input("Collection name (exact Mongo name)", "")
-    coll_desc = st.text_input("Description (short)","")
-
-    st.subheader("Sample Data")
-    source = st.radio("Source", ["Mongo", "CSV", "JSON"], horizontal=True)
-    df = None
-
-    if source == "Mongo":
-        db  = st.text_input("Database", os.getenv("MONGO_DB", "sports_feed_stg"))
-        lim = st.slider("Rows", 10, 500, 100)
-
-        if st.button("Fetch"):
-            try:
-                client = MongoClient(
-                    uri,
-                    serverSelectionTimeoutMS=5000,
-                    connectTimeoutMS=5000,
-                    socketTimeoutMS=5000,
-                    uuidRepresentation="standard",
-                )
-                client.admin.command("ping")
-                pipe = [
-                    {"$match": {}},
-                    {"$sample": {"size": int(lim)}},
-                    {"$project": {"_id": 0}},
-                ]
-                df = pd.DataFrame(list(client[db][coll_name].aggregate(pipe)))
-                st.session_state.sample_df = df
-                st.success(f"Loaded {len(df)} rows")
-                st.dataframe(df.head(50), use_container_width=True)
-            except Exception as e:
-                st.error(f"Mongo connection/sample error: {e}")
-
-    elif source == "CSV":
-        up = st.file_uploader("CSV file", type=["csv"])
-        if up:
-            df = pd.read_csv(up)
-            st.session_state.sample_df = df
-            st.dataframe(df.head(50), use_container_width=True)
-
-    else:  # JSON
-        up = st.file_uploader("JSON (records)", type=["json"])
-        if up:
-            recs = json.load(up)
-            df = pd.DataFrame(recs)
-            st.session_state.sample_df = df
-            st.dataframe(df.head(50), use_container_width=True)
-
-
-    st.subheader("Schema")
-    TYPE_OPS = {"string":["regex","sort"], "int":["range","sort"], "float":["range","sort"], "date":["range","sort"], "array":["keyword"]}
-
-    def infer_type(s: pd.Series) -> str:
-        import pandas as pd
-        if pd.api.types.is_integer_dtype(s): return "int"
-        if pd.api.types.is_float_dtype(s):   return "float"
-        try:
-            pd.to_datetime(s.dropna().head(50), errors="raise"); return "date"
-        except: pass
-        if s.dropna().map(lambda x: isinstance(x,(list,tuple))).any(): return "array"
-        return "string"
-
-    fields = []
-    generate = st.button("Generate schema (heuristic)")
-    upload   = st.file_uploader("…or upload schema JSON", type=["json"], key="schemajson")
-
-    cap = load_registry().get("options_max", 20)
-
-    if generate:
-        df0 = st.session_state.sample_df
-        if df0 is None or df0.empty:
-            st.error("Load sample data first.")
+    # Collection management in two columns
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.header("📄 Add / Edit Collection")
+        
+        # Collection selector for editing existing
+        existing_colls = list(list_collections().keys())
+        edit_mode = st.selectbox("Mode", ["Create New", "Edit Existing"], key="collection_mode")
+        
+        if edit_mode == "Edit Existing" and existing_colls:
+            selected_coll = st.selectbox("Select Collection to Edit", existing_colls)
+            # Pre-fill with existing data
+            existing_data = list_collections()[selected_coll]
+            coll_name = selected_coll
+            coll_desc = st.text_input("Description (short)", value=existing_data.get("description", ""))
+            # Load existing schema
+            st.session_state.schema_fields = existing_data.get("fields", [])
         else:
-            fields = heuristic_schema(df0, options_max=load_registry().get("options_max", 20))
-            st.session_state.schema_fields = fields
-            st.success("Schema generated with AI descriptions and intelligent options.")
+            # Collection name input with dropdown for available collections
+            available_collections = st.session_state.get("available_collections", [])
+            
+            # Create options: manual input + available collections
+            collection_options = ["Type manually..."] + available_collections
+            
+            selected_option = st.selectbox(
+                "Collection Name", 
+                options=collection_options,
+                help="Select from available MongoDB collections or type manually"
+            )
+            
+            if selected_option == "Type manually...":
+                coll_name = st.text_input(
+                    "Enter collection name", 
+                    placeholder="Enter exact MongoDB collection name"
+                )
+            else:
+                coll_name = selected_option
+                st.info(f"Selected collection: **{coll_name}**")
+            
+            coll_desc = st.text_input("Description (short)", "")
+        
+        st.subheader("📊 Sample Data")
+        source = st.radio("Data Source", ["MongoDB", "CSV Upload", "JSON Upload"], horizontal=True)
+        df = None
 
+        if source == "MongoDB":
+            # Show current collection being used
+            if coll_name:
+                st.info(f"Will fetch data from: **{coll_name}**")
+            
+            lim = st.slider("Sample Size", 10, 500, 100)
 
-    # if generate:
-    #     df0 = st.session_state.sample_df
-    #     if df0 is None or df0.empty:
-    #         st.error("Load sample data first (Mongo/CSV/JSON) before generating schema.")
-    #     else:
-    #         fields = []
-    #         for col in df0.columns:
-    #             t = infer_type(df0[col])
-    #             ops = TYPE_OPS[t]
-    #             opts = []
-    #             if t == "string":
-    #                 uniq = df0[col].dropna().astype(str).str.strip().unique()
-    #                 opts = sorted(map(str, uniq))[:cap]  # IMPORTANT: cap to admin setting
-    #             fields.append({
-    #                 "name": col,
-    #                 "type": t,
-    #                 "operations": ops,
-    #                 "description": "",
-    #                 "options": opts
-    #             })
-    #         st.session_state.schema_fields = fields
+            if st.button("🔄 Fetch Sample Data", type="primary"):
+                if not coll_name:
+                    st.error("Please select or enter a collection name")
+                else:
+                    df, error = fetch_collection_sample(
+                        st.session_state.mongo_uri, 
+                        st.session_state.mongo_db, 
+                        coll_name, 
+                        lim
+                    )
+                    if error:
+                        st.error(error)
+                    else:
+                        st.session_state.sample_df = df
+                        st.success(f"✅ Loaded {len(df)} rows from {coll_name}")
 
-    if upload:
-        try:
-            st.session_state.schema_fields = json.load(upload).get("fields", [])
-            st.info(f"Loaded {len(st.session_state['schema_fields'])} fields from JSON.")
-        except Exception as e:
-            st.error(f"Invalid schema JSON: {e}")
+        elif source == "CSV Upload":
+            up = st.file_uploader("📁 Upload CSV file", type=["csv"])
+            if up:
+                df = pd.read_csv(up)
+                st.session_state.sample_df = df
+                st.success(f"✅ Loaded CSV with {len(df)} rows")
 
+        else:  # JSON Upload
+            up = st.file_uploader("📁 Upload JSON file (records format)", type=["json"])
+            if up:
+                recs = json.load(up)
+                df = pd.DataFrame(recs)
+                st.session_state.sample_df = df
+                st.success(f"✅ Loaded JSON with {len(df)} rows")
 
+    with col2:
+        st.header("🧠 Schema Generation")
+        
+        # Schema generation options
+        col_a, col_b = st.columns([1, 1])
+        with col_a:
+            generate = st.button("🤖 Generate AI Schema", type="primary", use_container_width=True)
+        with col_b:
+            upload = st.file_uploader("📤 Upload Schema JSON", type=["json"], key="schemajson")
+
+        if generate:
+            df0 = st.session_state.sample_df
+            if df0 is None or df0.empty:
+                st.error("⚠️ Load sample data first.")
+            else:
+                with st.spinner("🤖 Generating schema with AI descriptions..."):
+                    fields = heuristic_schema(df0, options_max=load_registry().get("options_max", 20))
+                    st.session_state.schema_fields = fields
+                    st.success(f"✅ Schema generated with {len(fields)} fields!")
+
+        if upload:
+            try:
+                st.session_state.schema_fields = json.load(upload).get("fields", [])
+                st.info(f"📥 Loaded {len(st.session_state['schema_fields'])} fields from JSON.")
+            except Exception as e:
+                st.error(f"❌ Invalid schema JSON: {e}")
+
+    # Show sample data if available (full width)
+    if st.session_state.sample_df is not None:
+        st.subheader("📋 Sample Data Preview")
+        st.dataframe(st.session_state.sample_df.head(50), use_container_width=True, height=300)
+
+    # Schema editor (full width)
     if st.session_state.schema_fields:
-        st.subheader("Edit Generated Schema")
+        st.subheader("✏️ Edit Schema")
 
         sch = pd.DataFrame(st.session_state.schema_fields)
 
@@ -375,19 +476,20 @@ with tab_schema:
         sch["options"] = sch["options"].apply(lambda x: ", ".join(map(str, x)) if isinstance(x, list) else "")
         sch["operations"] = sch["operations"].apply(lambda x: ", ".join(map(str, x)) if isinstance(x, list) else "")
 
-        # Editable type dropdown
+        TYPE_OPS = {"string":["regex","sort"], "int":["range","sort"], "float":["range","sort"], "date":["range","sort"], "array":["keyword"]}
         sch["type"] = sch["type"].astype("category").cat.set_categories(list(TYPE_OPS.keys()))
 
         edited = st.data_editor(
             sch,
             num_rows="dynamic",
             use_container_width=True,
+            height=400,
             column_config={
-                "name": st.column_config.TextColumn("Field Name", required=True),
-                "type": st.column_config.SelectboxColumn("Type", options=list(TYPE_OPS.keys())),
-                "operations": st.column_config.TextColumn("Operations (comma-separated)"),
-                "description": st.column_config.TextColumn("Description"),
-                "options": st.column_config.TextColumn("Options (comma-separated)")
+                "name": st.column_config.TextColumn("Field Name", required=True, width="medium"),
+                "type": st.column_config.SelectboxColumn("Type", options=list(TYPE_OPS.keys()), width="small"),
+                "operations": st.column_config.TextColumn("Operations", width="medium"),
+                "description": st.column_config.TextColumn("Description", width="large"),
+                "options": st.column_config.TextColumn("Options", width="large")
             },
             hide_index=True
         )
@@ -409,26 +511,64 @@ with tab_schema:
             for _, row in edited.iterrows()
         ]
 
-        if st.button("Save collection"):
-            if not coll_name.strip():
-                st.warning("Please enter a collection name.")
-            else:
-                reg = load_registry()
-                reg["collections"][coll_name] = {
-                    "description": coll_desc,
-                    "fields": st.session_state.schema_fields
-                }
-                save_registry(reg)
-                st.success(f"Saved schema for {coll_name}")
+        # Save button (prominent)
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("💾 Save Collection Schema", type="primary", use_container_width=True):
+                if not coll_name.strip():
+                    st.error("⚠️ Please enter a collection name.")
+                else:
+                    reg = load_registry()
+                    reg["collections"][coll_name] = {
+                        "description": coll_desc,
+                        "fields": st.session_state.schema_fields
+                    }
+                    save_registry(reg)
+                    st.success(f"✅ Saved schema for **{coll_name}** with {len(st.session_state.schema_fields)} fields!")
+                    st.balloons()
 
-
-    st.header("Existing Collections")
+    # Existing collections management (full width)
+    st.divider()
+    st.header("📚 Existing Collections")
+    
     colls = list_collections()
-    st.write({k: {"fields": len(v.get("fields",[]))} for k,v in colls.items()})
-    del_name = st.selectbox("Delete collection", ["(none)"] + list(colls.keys()))
-    if del_name != "(none)" and st.button("Delete"):
-        delete_collection(del_name); st.success("Deleted")
+    if colls:
+        # Create a nice table view
+        coll_data = []
+        for k, v in colls.items():
+            coll_data.append({
+                "Collection": k,
+                "Description": v.get("description", ""),
+                "Fields": len(v.get("fields", [])),
+                "Last Modified": "N/A"  # Could add timestamp if needed
+            })
+        
+        st.dataframe(
+            pd.DataFrame(coll_data),
+            use_container_width=True,
+            column_config={
+                "Collection": st.column_config.TextColumn("Collection Name", width="medium"),
+                "Description": st.column_config.TextColumn("Description", width="large"),
+                "Fields": st.column_config.NumberColumn("Field Count", width="small"),
+                "Last Modified": st.column_config.TextColumn("Last Modified", width="medium")
+            }
+        )
+        
+        # Delete collection
+        col1, col2, col3 = st.columns([2, 1, 2])
+        with col2:
+            del_name = st.selectbox("🗑️ Delete Collection", ["(none)"] + list(colls.keys()))
+            if del_name != "(none)" and st.button("🗑️ Delete", type="secondary"):
+                delete_collection(del_name)
+                st.success(f"🗑️ Deleted {del_name}")
+                st.rerun()
+    else:
+        st.info("📝 No collections defined yet. Create your first collection above!")
 
+    # Schema preview (full width)
+    st.divider()
+    st.subheader("👁️ Schema Preview (as seen by AI)")
+    
     from schema_registry import get_all_fields, get_descriptions
     reg = load_registry()
     preview = render_schema_section_all(
@@ -436,9 +576,7 @@ with tab_schema:
         get_descriptions(reg), 
         reg.get("options_max", 20)
     )
-    st.code(preview)
-
-
+    st.code(preview, language="markdown")
 
 from schema_registry import (
     get_core_rules_config, set_core_rules_config,
@@ -520,3 +658,444 @@ with tab_rules:
     st.code(prompt_preview, language="markdown")
 
     st.info("Tip: In the Chat UI, open “Prompt sent to LLM” to see the **response-gen** prompt for a given question.")
+
+# Import user access functions
+from schema_registry import (
+    get_user_access_config, set_user_access, delete_user_access,
+    get_user_collections, get_all_users
+)
+
+with tab_access:
+    st.subheader("User Access Control")
+    st.write("Manage which collections each user can access.")
+    
+    # Get current registry and available collections
+    reg = load_registry()
+    all_collections = list(reg.get("collections", {}).keys())
+    
+    # Display no collections warning if needed
+    if not all_collections:
+        st.warning("No collections available. Add collections in the 'Collections & Schemas' tab first.")
+    
+    # Get current user access configuration
+    user_access_config = get_user_access_config()
+    
+    # Section for adding/editing user access
+    st.markdown("### Add or Edit User Access")
+    
+    # User selection or creation
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        # Get existing users plus option for new user
+        existing_users = get_all_users()
+        user_options = ["Add New User"] + existing_users
+        selected_user_option = st.selectbox("Select User", user_options)
+        
+        if selected_user_option == "Add New User":
+            # New user input
+            user_id = st.text_input("New User ID", placeholder="Enter user ID or name")
+            is_new_user = True
+            st.info("New users are granted access to all collections by default. You can adjust access as needed.")
+        else:
+            # Existing user
+            user_id = selected_user_option
+            is_new_user = False
+    
+    # Only show the rest if collections exist
+    if all_collections:
+        # Collection access selection
+        st.markdown("#### Select Collections")
+        st.write("Choose which collections this user can access:")
+        
+        # Get current access for this user
+        user_collections = get_user_collections(user_id) if not is_new_user else all_collections  # Default all collections for new users
+        
+        # Add select/deselect all buttons
+        col1, col2 = st.columns([1, 5])
+        with col1:
+            if st.button("Select All"):
+                st.session_state.select_all_collections = True
+                st.session_state.deselect_all_collections = False
+                st.rerun()
+            if st.button("Deselect All"):
+                st.session_state.select_all_collections = False
+                st.session_state.deselect_all_collections = True
+                st.rerun()
+        
+        # Initialize session state for select/deselect all
+        if 'select_all_collections' not in st.session_state:
+            st.session_state.select_all_collections = False
+        if 'deselect_all_collections' not in st.session_state:
+            st.session_state.deselect_all_collections = False
+            
+        # Create checkboxes for each collection
+        selected_collections = []
+        for collection in all_collections:
+            # Handle select all/deselect all
+            if st.session_state.select_all_collections:
+                is_selected = True
+            elif st.session_state.deselect_all_collections:
+                is_selected = False
+            else:
+                is_selected = collection in user_collections
+                
+            if st.checkbox(collection, value=is_selected, key=f"access_{user_id}_{collection}"):
+                selected_collections.append(collection)
+        
+        # Reset select/deselect flags after they've been applied
+        if st.session_state.select_all_collections or st.session_state.deselect_all_collections:
+            st.session_state.select_all_collections = False
+            st.session_state.deselect_all_collections = False
+        
+        # Save button
+        if st.button("Save User Access", type="primary"):
+            if user_id:
+                set_user_access(user_id, selected_collections)
+                st.success(f"Access settings saved for user '{user_id}'")
+                st.toast(f"User '{user_id}' now has access to {len(selected_collections)} collections", icon="✅")
+            else:
+                st.error("Please enter a User ID")
+        
+        # Current access summary
+        st.divider()
+        st.markdown("### Current User Access")
+        
+        user_access_df = []
+        for u_id, collections in user_access_config.items():
+            user_access_df.append({
+                "User ID": u_id,
+                "Collections": ", ".join(collections) if collections else "None",
+                "Count": len(collections)
+            })
+        
+        if user_access_df:
+            st.dataframe(
+                pd.DataFrame(user_access_df),
+                use_container_width=True,
+                column_config={
+                    "User ID": st.column_config.TextColumn("User ID"),
+                    "Collections": st.column_config.TextColumn("Accessible Collections"),
+                    "Count": st.column_config.NumberColumn("Count")
+                }
+            )
+        else:
+            st.info("No user access settings defined yet.")
+        
+        # Delete user section
+        st.divider()
+        st.markdown("### Delete User Access")
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            user_to_delete = st.selectbox(
+                "Select User to Delete",
+                [""] + existing_users,
+                index=0,
+                placeholder="Select a user"
+            )
+        
+        with col2:
+            st.markdown("&nbsp;")  # Spacer
+            st.markdown("&nbsp;")  # Spacer
+            if user_to_delete and st.button("Delete User", type="secondary"):
+                delete_user_access(user_to_delete)
+                st.success(f"Access settings deleted for user '{user_to_delete}'")
+                st.toast(f"User '{user_to_delete}' removed", icon="🗑️")
+                st.rerun()
+    else:
+        st.info("Please add collections in the 'Collections & Schemas' tab before setting up user access.")
+
+# Import RLS functions
+from schema_registry import (
+    get_rls_config, set_rls_config, set_rls_collection_field, 
+    get_rls_collection_field, delete_rls_collection_config
+)
+from rls_engine import RLSFieldDetector, create_rls_interceptor
+
+with tab_rls:
+    st.subheader("🔒 Row-Level Security (RLS) Configuration")
+    st.write("Configure automatic query filtering to ensure users only see data they own.")
+    
+    # Get current RLS configuration
+    rls_config = get_rls_config()
+    
+    # Global RLS Settings
+    st.markdown("### Global RLS Settings")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        rls_enabled = st.checkbox(
+            "Enable Row-Level Security",
+            value=rls_config.get("enabled", False),
+            help="When enabled, all queries will be automatically filtered by user ownership"
+        )
+        
+        default_user_field = st.text_input(
+            "Default User Field",
+            value=rls_config.get("default_user_field", "user_id"),
+            help="Default field name used to identify row ownership across collections"
+        )
+        
+        enforcement_mode = st.selectbox(
+            "Enforcement Mode",
+            options=["base_only", "all_involved"],
+            index=0 if rls_config.get("enforcement_mode", "base_only") == "base_only" else 1,
+            help="base_only: Filter only primary collection; all_involved: Filter all collections in joins"
+        )
+    
+    with col2:
+        audit_enabled = st.checkbox(
+            "Enable Audit Logging",
+            value=rls_config.get("audit_enabled", True),
+            help="Log all RLS decisions and filter applications for security audit"
+        )
+        
+        # Bypass roles
+        bypass_roles_text = st.text_area(
+            "Bypass Roles (one per line)",
+            value="\n".join(rls_config.get("bypass_roles", ["admin", "super_user"])),
+            height=100,
+            help="Users with these roles will bypass RLS filtering"
+        )
+        
+        bypass_roles = [role.strip() for role in bypass_roles_text.split("\n") if role.strip()]
+    
+    # Save global settings
+    if st.button("💾 Save Global RLS Settings", type="primary"):
+        new_config = {
+            "enabled": rls_enabled,
+            "default_user_field": default_user_field,
+            "enforcement_mode": enforcement_mode,
+            "bypass_roles": bypass_roles,
+            "audit_enabled": audit_enabled,
+            "collections": rls_config.get("collections", {})
+        }
+        set_rls_config(new_config)
+        st.success("✅ Global RLS settings saved!")
+        st.rerun()
+    
+    st.divider()
+    
+    # Collection-Specific RLS Configuration
+    st.markdown("### Collection-Specific RLS Configuration")
+    st.write("Override the default user field for specific collections or let AI detect the best field.")
+    
+    # Get available collections
+    reg = load_registry()
+    available_collections = list(reg.get("collections", {}).keys())
+    
+    if not available_collections:
+        st.warning("No collections available. Add collections in the 'Collections & Schemas' tab first.")
+    else:
+        # Auto-detect fields for all collections
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            if st.button("🤖 Auto-Detect RLS Fields", type="secondary"):
+                detector = RLSFieldDetector()
+                all_fields = get_all_fields(reg)
+                detected_fields = {}
+                
+                with st.spinner("🤖 Analyzing collections for ownership fields..."):
+                    for collection in available_collections:
+                        if collection in all_fields:
+                            detected_field = detector.detect_ownership_field(
+                                collection, all_fields[collection]
+                            )
+                            if detected_field:
+                                detected_fields[collection] = detected_field
+                
+                if detected_fields:
+                    st.session_state.detected_rls_fields = detected_fields
+                    st.success(f"✅ Detected ownership fields for {len(detected_fields)} collections!")
+                    for coll, field in detected_fields.items():
+                        st.info(f"**{coll}**: {field}")
+                else:
+                    st.warning("⚠️ No suitable ownership fields detected automatically.")
+        
+        with col2:
+            if st.button("📋 Apply All Detected Fields"):
+                if "detected_rls_fields" in st.session_state:
+                    for collection, field in st.session_state.detected_rls_fields.items():
+                        set_rls_collection_field(collection, field, enforcement_mode)
+                    st.success(f"✅ Applied RLS fields to {len(st.session_state.detected_rls_fields)} collections!")
+                    st.rerun()
+                else:
+                    st.error("Please run auto-detection first.")
+        
+        # Individual collection configuration
+        st.markdown("#### Manual Configuration")
+        
+        selected_collection = st.selectbox(
+            "Select Collection",
+            options=[""] + available_collections,
+            help="Choose a collection to configure its RLS field"
+        )
+        
+        if selected_collection:
+            # Get current configuration
+            current_field = get_rls_collection_field(selected_collection)
+            collections_config = rls_config.get("collections", {})
+            current_enforcement = "base_only"
+            
+            if selected_collection in collections_config:
+                current_enforcement = collections_config[selected_collection].get("enforcement", "base_only")
+            
+            col1, col2, col3 = st.columns([2, 1, 1])
+            
+            with col1:
+                # Show available fields for this collection
+                collection_fields = get_all_fields(reg).get(selected_collection, [])
+                field_names = [f["name"] for f in collection_fields]
+                
+                if current_field in field_names:
+                    field_index = field_names.index(current_field)
+                else:
+                    field_index = 0
+                
+                new_field = st.selectbox(
+                    "RLS Field",
+                    options=field_names,
+                    index=field_index,
+                    help="Field that identifies row ownership for this collection"
+                )
+            
+            with col2:
+                new_enforcement = st.selectbox(
+                    "Enforcement",
+                    options=["base_only", "all_involved"],
+                    index=0 if current_enforcement == "base_only" else 1,
+                    help="How to enforce RLS for this collection"
+                )
+            
+            with col3:
+                st.markdown("&nbsp;")
+                if st.button("💾 Save"):
+                    set_rls_collection_field(selected_collection, new_field, new_enforcement)
+                    st.success(f"✅ Saved RLS config for {selected_collection}")
+                    st.rerun()
+                
+                if st.button("🗑️ Remove"):
+                    delete_rls_collection_config(selected_collection)
+                    st.success(f"🗑️ Removed RLS config for {selected_collection}")
+                    st.rerun()
+            
+            # Show field details
+            if new_field and collection_fields:
+                field_info = next((f for f in collection_fields if f["name"] == new_field), None)
+                if field_info:
+                    st.info(f"**{new_field}** ({field_info['type']}): {field_info.get('description', 'No description')}")
+    
+    st.divider()
+    
+    # Current RLS Configuration Summary
+    st.markdown("### Current RLS Configuration")
+    
+    if rls_enabled:
+        st.success("🟢 Row-Level Security is **ENABLED**")
+    else:
+        st.error("🔴 Row-Level Security is **DISABLED**")
+    
+    # Summary table
+    config_summary = []
+    collections_config = rls_config.get("collections", {})
+    
+    for collection in available_collections:
+        field = get_rls_collection_field(collection)
+        enforcement = "base_only"  # default
+        source = "Default"
+        
+        if collection in collections_config:
+            enforcement = collections_config[collection].get("enforcement", "base_only")
+            source = "Override"
+        
+        config_summary.append({
+            "Collection": collection,
+            "RLS Field": field,
+            "Enforcement": enforcement,
+            "Source": source
+        })
+    
+    if config_summary:
+        st.dataframe(
+            pd.DataFrame(config_summary),
+            use_container_width=True,
+            column_config={
+                "Collection": st.column_config.TextColumn("Collection", width="medium"),
+                "RLS Field": st.column_config.TextColumn("RLS Field", width="medium"),
+                "Enforcement": st.column_config.TextColumn("Enforcement", width="small"),
+                "Source": st.column_config.TextColumn("Source", width="small")
+            }
+        )
+    
+    # RLS Testing
+    st.divider()
+    st.markdown("### RLS Query Testing")
+    st.write("Test how RLS will modify queries for different users and roles.")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        test_user_id = st.text_input("Test User ID", value="user123")
+        test_role = st.selectbox("Test Role", options=["user", "admin", "customer", "employee"] + bypass_roles)
+        test_collection = st.selectbox("Test Collection", options=available_collections)
+    
+    with col2:
+        test_query = st.text_area(
+            "Test Query (JSON)",
+            value='{"status": "active"}',
+            height=100,
+            help="Enter a MongoDB query to see how RLS will modify it"
+        )
+    
+    if st.button("🧪 Test RLS Query Enhancement"):
+        try:
+            # Parse the test query
+            import json
+            original_query = json.loads(test_query)
+            
+            # Create RLS interceptor
+            rls = create_rls_interceptor(test_user_id, test_role)
+            
+            # Test different query types
+            enhanced_find = rls.enhance_find_query(test_collection, original_query)
+            enhanced_pipeline = rls.enhance_aggregate_pipeline(test_collection, [{"$match": original_query}])
+            enhanced_update_filter, _ = rls.enhance_update_query(test_collection, original_query, {"$set": {"updated": True}})
+            enhanced_delete = rls.enhance_delete_query(test_collection, original_query)
+            
+            # Show results
+            st.markdown("#### Query Enhancement Results:")
+            
+            col1, col2 = st.columns([1, 1])
+            
+            with col1:
+                st.markdown("**Original Query:**")
+                st.code(json.dumps(original_query, indent=2), language="json")
+                
+                st.markdown("**Enhanced Find:**")
+                st.code(json.dumps(enhanced_find, indent=2), language="json")
+            
+            with col2:
+                st.markdown("**Enhanced Update Filter:**")
+                st.code(json.dumps(enhanced_update_filter, indent=2), language="json")
+                
+                st.markdown("**Enhanced Delete:**")
+                st.code(json.dumps(enhanced_delete, indent=2), language="json")
+            
+            st.markdown("**Enhanced Aggregation Pipeline:**")
+            st.code(json.dumps(enhanced_pipeline, indent=2), language="json")
+            
+            # Show audit log
+            audit_log = rls.get_audit_log()
+            if audit_log:
+                st.markdown("**Audit Log:**")
+                for entry in audit_log:
+                    st.caption(f"[{entry['timestamp']}] {entry['action']}: {entry['message']}")
+            
+        except json.JSONDecodeError:
+            st.error("❌ Invalid JSON in test query")
+        except Exception as e:
+            st.error(f"❌ Error testing RLS: {e}")
+
+
