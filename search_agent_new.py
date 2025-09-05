@@ -270,72 +270,132 @@ TOOLS = [search_collection]
 
 def _run_query(collection: str, spec: Dict[str, Any]) -> QueryResult:
     try:
-        # Get RLS user ID from session state (set in frontend)
+        # Get RLS user ID and role from session state (set in frontend)
         rls_user_id = None
+        user_role = "user"  # default role
+        
         try:
             import streamlit as st
             rls_user_id = st.session_state.get("rls_user_id")
+            user_role = st.session_state.get("user_role", "user")  # Get user role
         except:
             # Not running in Streamlit context
             pass
         
-        # Apply RLS if user ID is provided and not admin
-        if rls_user_id and rls_user_id != "1":  # "1" is admin, bypasses RLS
-            parsed = EntityQuery(**spec)
-            coll = db[collection]
-            mongo_filter = {}
-            regular_filters = []
-
-            # Build filters from user query
-            for f in parsed.filters:
-                fld_meta = next((m for m in SEARCHABLE_FIELDS[collection]
-                                if m["name"] == f.field), None)
-                if not fld_meta or f.operation not in fld_meta["operations"]:
-                    return {"ok": False,
-                            "error": f"Invalid field/operation: {f.field},{f.operation}",
-                            "filter": mongo_filter}
-
-                # Add user filters
-                if f.operation == "regex":
-                    regular_filters.append({f.field: {"$regex": f.value, "$options": "i"}})
-                elif f.operation == "keyword":
-                    regular_filters.append({f.field: {"$elemMatch": {"$regex": f.value, "$options": "i"}}})
-                elif f.operation == "range":
-                    if fld_meta["type"] == "date":
-                        rng = {}
-                        for op, v in f.value.items():
-                            if isinstance(v, str):
-                                try:
-                                    if len(v) <= 10:  # YYYY-MM-DD
-                                        if op in ["$gte", "$gt"]:
-                                            rng[op] = f"{v} 00:00:00"
-                                        else:
-                                            rng[op] = f"{v} 23:59:59"
-                                    else:
-                                        rng[op] = v
-                                except ValueError:
-                                    rng[op] = v
-                            else:
-                                rng[op] = v
-                        regular_filters.append({f.field: rng})
-                    else:
-                        regular_filters.append({f.field: f.value})
-
-            # Add RLS filter - automatically add user_id restriction
-            rls_filter = {"user_id": int(rls_user_id)}
-            regular_filters.append(rls_filter)
+        # Use RLS engine if user ID is provided
+        if rls_user_id:
+            from rls_engine import create_rls_interceptor
             
-            # Combine all filters
-            if len(regular_filters) == 1:
-                mongo_filter = regular_filters[0]
-            elif len(regular_filters) > 1:
-                mongo_filter = {"$and": regular_filters}
+            # Create RLS interceptor with user context
+            rls = create_rls_interceptor(rls_user_id, user_role)
+            
+            # Check if RLS should be bypassed
+            if rls.should_bypass_rls():
+                print(f"\n[RLS] RLS bypassed for user {rls_user_id} with role {user_role}")
+                # Process without RLS (admin or bypass role)
+                parsed = EntityQuery(**spec)
+                coll = db[collection]
+                mongo_filter = {}
+                regular_filters = []
 
-            print(f"\n[RLS] Applied user_id filter: {rls_user_id}")
-            print(f"[RLS] Final MongoDB filter: {mongo_filter}")
+                # Build filters without RLS
+                for f in parsed.filters:
+                    fld_meta = next((m for m in SEARCHABLE_FIELDS[collection]
+                                    if m["name"] == f.field), None)
+                    if not fld_meta or f.operation not in fld_meta["operations"]:
+                        return {"ok": False,
+                                "error": f"Invalid field/operation: {f.field},{f.operation}",
+                                "filter": mongo_filter}
+
+                    # Add filters without RLS restrictions
+                    if f.operation == "regex":
+                        regular_filters.append({f.field: {"$regex": f.value, "$options": "i"}})
+                    elif f.operation == "keyword":
+                        regular_filters.append({f.field: {"$elemMatch": {"$regex": f.value, "$options": "i"}}})
+                    elif f.operation == "range":
+                        if fld_meta["type"] == "date":
+                            rng = {}
+                            for op, v in f.value.items():
+                                if isinstance(v, str):
+                                    try:
+                                        if len(v) <= 10:  # YYYY-MM-DD
+                                            if op in ["$gte", "$gt"]:
+                                                rng[op] = f"{v} 00:00:00"
+                                            else:
+                                                rng[op] = f"{v} 23:59:59"
+                                        else:
+                                            rng[op] = v
+                                    except ValueError:
+                                        rng[op] = v
+                                else:
+                                    rng[op] = v
+                            regular_filters.append({f.field: rng})
+                        else:
+                            regular_filters.append({f.field: f.value})
+
+                # Combine filters without RLS
+                if len(regular_filters) == 1:
+                    mongo_filter = regular_filters[0]
+                elif len(regular_filters) > 1:
+                    mongo_filter = {"$and": regular_filters}
+
+            else:
+                print(f"\n[RLS] Applying RLS for user {rls_user_id} with role {user_role}")
+                # Apply RLS filtering
+                parsed = EntityQuery(**spec)
+                coll = db[collection]
+                
+                # Build base query
+                base_query = {}
+                regular_filters = []
+
+                # Build filters from user query
+                for f in parsed.filters:
+                    fld_meta = next((m for m in SEARCHABLE_FIELDS[collection]
+                                    if m["name"] == f.field), None)
+                    if not fld_meta or f.operation not in fld_meta["operations"]:
+                        return {"ok": False,
+                                "error": f"Invalid field/operation: {f.field},{f.operation}",
+                                "filter": base_query}
+
+                    # Add user filters
+                    if f.operation == "regex":
+                        regular_filters.append({f.field: {"$regex": f.value, "$options": "i"}})
+                    elif f.operation == "keyword":
+                        regular_filters.append({f.field: {"$elemMatch": {"$regex": f.value, "$options": "i"}}})
+                    elif f.operation == "range":
+                        if fld_meta["type"] == "date":
+                            rng = {}
+                            for op, v in f.value.items():
+                                if isinstance(v, str):
+                                    try:
+                                        if len(v) <= 10:  # YYYY-MM-DD
+                                            if op in ["$gte", "$gt"]:
+                                                rng[op] = f"{v} 00:00:00"
+                                            else:
+                                                rng[op] = f"{v} 23:59:59"
+                                        else:
+                                            rng[op] = v
+                                    except ValueError:
+                                        rng[op] = v
+                                else:
+                                    rng[op] = v
+                            regular_filters.append({f.field: rng})
+                        else:
+                            regular_filters.append({f.field: f.value})
+
+                # Combine user filters
+                if len(regular_filters) == 1:
+                    base_query = regular_filters[0]
+                elif len(regular_filters) > 1:
+                    base_query = {"$and": regular_filters}
+
+                # Apply RLS enhancement
+                mongo_filter = rls.enhance_find_query(collection, base_query)
 
         else:
-            # No RLS (admin user or no RLS user selected)
+            print(f"\n[RLS] No RLS user selected - no filtering applied")
+            # No RLS user selected - process normally
             parsed = EntityQuery(**spec)
             coll = db[collection]
             mongo_filter = {}
@@ -381,19 +441,14 @@ def _run_query(collection: str, spec: Dict[str, Any]) -> QueryResult:
             elif len(regular_filters) > 1:
                 mongo_filter = {"$and": regular_filters}
 
-            if rls_user_id == "1":
-                print(f"\n[RLS] Admin user - no filtering applied")
-            else:
-                print(f"\n[RLS] No RLS user selected - no filtering applied")
-
         # Execute query
         projection = {"_id": 0}
         sort_clause = [(fld, 1 if d.lower() == "asc" else -1)
                        for fld, d in parsed.sort.items()]
         
-        print(f"\n[DIRECT DB CHECK] Running query on {collection} with filter:", json.dumps(mongo_filter, default=str))
+        print(f"\n[QUERY] Running query on {collection} with filter:", json.dumps(mongo_filter, default=str))
         check_count = coll.count_documents(mongo_filter)
-        print(f"[DIRECT DB CHECK] Documents found: {check_count}")
+        print(f"[QUERY] Documents found: {check_count}")
 
         cursor = _apply_sort(
             coll.find(mongo_filter, projection),
@@ -595,6 +650,7 @@ PROMPT = ChatPromptTemplate.from_messages([
 # ────────────────────────────────
 # 7. User-facing wrapper
 # ────────────────────────────────
+llm = ChatOpenAI(model="gpt-4.1-mini")
 def run_search_agent(user_id: str, team_id: str,
     query: str,
     callbacks: Optional[List[BaseCallbackHandler]] = None,
@@ -677,16 +733,17 @@ def run_search_agent(user_id: str, team_id: str,
         ("human", query)
     ])
 
-    llm = get_llm()
+    # llm = get_llm()
     
-    response = create_react_agent(
-        model=llm,
-        tools=TOOLS,
-        prompt=prompt_template
-    ).invoke(
-        {"messages": [{"role": "user", "content": query}]},
-        config={"recursion_limit": 30, "callbacks": callbacks or [PrintIntermediateStepsHandler()]}
-    )
+    # response = create_react_agent(
+    #     model=llm,
+    #     tools=TOOLS,
+    #     prompt=prompt_template
+    # ).invoke(
+    #     {"messages": [{"role": "user", "content": query}]},
+    #     config={"recursion_limit": 30, "callbacks": callbacks or [PrintIntermediateStepsHandler()]}
+    # )
+    response = llm.invoke(prompt_template.format_messages(messages=[]))
 
     invoke_cfg = {"recursion_limit": 30}
     if callbacks:
@@ -700,8 +757,9 @@ def run_search_agent(user_id: str, team_id: str,
     #     config=invoke_cfg,
     # )
 
-    ai_msg   = response["messages"][-1]
-    spec_str = ai_msg.content.strip()
+    # ai_msg   = response["messages"][-1]
+    # spec_str = ai_msg.content.strip()
+    spec_str = response.content.strip()
 
     # 1) Parse the JSON
 
