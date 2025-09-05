@@ -196,6 +196,35 @@ with st.sidebar:
     st.markdown("### 🔒 Row-Level Security (RLS)")
     st.caption("Select which user's data you want to see (for testing RLS)")
     
+    # Get RLS configuration to show bypass roles
+    try:
+        from schema_registry import get_rls_config
+        rls_config = get_rls_config()
+        bypass_roles = rls_config.get("bypass_roles", ["admin", "super_user"])
+        
+        # Show current RLS settings
+        if rls_config.get("enabled", False):
+            st.success("🟢 RLS is enabled")
+            st.caption(f"Bypass roles: {', '.join(bypass_roles)}")
+        else:
+            st.warning("🟡 RLS is disabled in admin settings")
+            
+    except Exception as e:
+        st.error(f"Error loading RLS config: {e}")
+        bypass_roles = ["admin", "super_user"]
+    
+    # User role selection
+    all_roles = ["user", "customer", "employee"] + bypass_roles
+    user_role = st.selectbox(
+        "User Role",
+        options=all_roles,
+        index=0,
+        help=f"Select user role. Bypass roles ({', '.join(bypass_roles)}) will see all data regardless of RLS user ID"
+    )
+    
+    # Store user role in session state
+    st.session_state.user_role = user_role
+    
     # Get available user_ids from database
     try:
         from schema_registry import get_connection_config, load_registry
@@ -208,32 +237,29 @@ with st.sidebar:
             
             # Get unique user_ids from collections
             user_ids = set()
-            if "activity_list" in db.list_collection_names():
-                user_ids.update(db.activity_list.distinct("user_id"))
             if "user_leave_list" in db.list_collection_names():
                 user_ids.update(db.user_leave_list.distinct("user_id"))
-            if "master_user_subscription" in db.list_collection_names():
-                user_ids.update(db.master_user_subscription.distinct("user_id"))
+            # Add other collections as needed
             
             available_user_ids = sorted([str(uid) for uid in user_ids if uid is not None])
         else:
-            available_user_ids = ["1", "2", "3", "4", "5"]
+            available_user_ids = ["1", "85", "25", "42", "73"]
     except Exception as e:
         st.error(f"Could not fetch user IDs: {e}")
-        available_user_ids = ["1", "2", "3", "4", "5"]
+        available_user_ids = ["1", "85", "25", "42", "73"]
     
     # RLS User ID selection
     rls_user_id = st.selectbox(
         "RLS Filter User ID",
         options=[""] + available_user_ids,
         index=0,
-        help="Select user_id for RLS filtering. User ID 1 = Admin (sees all data)"
+        help="Select user_id for RLS filtering. Bypass roles will see all data regardless of this selection"
     )
     
     # Show what RLS will do
     if rls_user_id:
-        if rls_user_id == "1":
-            st.warning("🔓 Admin (user_id=1) - RLS bypassed, sees all data")
+        if user_role in bypass_roles:
+            st.warning(f"🔓 Role '{user_role}' bypasses RLS - will see all data")
         else:
             st.info(f"🔒 RLS Active - Only shows data where user_id = {rls_user_id}")
         
@@ -577,10 +603,15 @@ with chat_tab:
             # Prepare debug info
             dbg_box = st.expander("Debug info", expanded=False)
             debug_content = {
-                "Query Spec": spec,  # Includes filters, sort, and limit
+                "Query Spec": spec,
                 "MongoDB Filters": dbg.get("filters", []),
                 "Chosen Collections": dbg.get("chosen_collections", []),
                 "Restricted Collections": dbg.get("restricted_collections", []),
+                "RLS Status": {
+                    "user_id": st.session_state.get("rls_user_id"),
+                    "user_role": st.session_state.get("user_role"),
+                    "bypass_active": user_role in bypass_roles if 'bypass_roles' in locals() else False
+                },
                 "Raw Results": rows_text
             }
             dbg_box.code(json.dumps(debug_content, indent=2, default=str), language="json")
