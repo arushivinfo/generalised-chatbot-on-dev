@@ -85,3 +85,115 @@ def set_user_match_context(text: str) -> Dict:
     reg["user_match_context"] = text or ""
     save_registry(reg); return reg
 
+# User access control functions
+def get_user_access_config(reg: Dict | None = None) -> Dict:
+    """Get the user access configuration from registry."""
+    reg = reg or load_registry()
+    if "user_access" not in reg:
+        reg["user_access"] = {}  # Initialize if not exists
+        save_registry(reg)
+    return reg.get("user_access", {})
+
+def set_user_access(user_id: str, collections: List[str]) -> Dict:
+    """Set which collections a user can access."""
+    reg = load_registry()
+    if "user_access" not in reg:
+        reg["user_access"] = {}
+    reg["user_access"][user_id] = collections
+    save_registry(reg)
+    return reg
+
+def delete_user_access(user_id: str) -> Dict:
+    """Remove a user's access configuration."""
+    reg = load_registry()
+    if "user_access" in reg and user_id in reg["user_access"]:
+        del reg["user_access"][user_id]
+        save_registry(reg)
+    return reg
+
+def get_user_collections(user_id: str, reg: Dict | None = None) -> List[str]:
+    """Get collections a user has access to. If user doesn't exist or has no
+    specific permissions, return an empty list (no collections)."""
+    reg = reg or load_registry()
+    user_access = reg.get("user_access", {})
+    # Return user's authorized collections or empty list if not found
+    return user_access.get(user_id, [])
+
+def get_user_accessible_collections(user_id: str, reg: Dict | None = None) -> List[str]:
+    reg = reg or load_registry()
+    if user_id == "admin":
+        return get_collection_names(reg)
+    user_access = reg.get("user_access", {})
+    # if not user_access or user_id not in user_access:
+    #     return get_collection_names(reg)
+    return user_access.get(user_id, [])
+
+def get_all_users(reg: Dict | None = None) -> List[str]:
+    """Get list of all users with access configurations."""
+    reg = reg or load_registry()
+    return list(reg.get("user_access", {}).keys())
+
+# Row-Level Security (RLS) functions
+def get_rls_config(reg: Dict | None = None) -> Dict:
+    """Get the Row-Level Security configuration."""
+    reg = reg or load_registry()
+    if "rls_config" not in reg:
+        reg["rls_config"] = {
+            "enabled": False,
+            "default_user_field": "user_id",
+            "enforcement_mode": "base_only",  # "base_only" or "all_involved"
+            "bypass_roles": ["admin", "super_user"],
+            "audit_enabled": True,
+            "collections": {}  # Per-collection overrides
+        }
+        save_registry(reg)
+    return reg.get("rls_config", {})
+
+def set_rls_config(config: Dict) -> Dict:
+    """Set the Row-Level Security configuration."""
+    reg = load_registry()
+    reg["rls_config"] = config
+    save_registry(reg)
+    return reg
+
+def set_rls_collection_field(collection: str, user_field: str, enforcement: str = None) -> Dict:
+    """Set the user field for a specific collection."""
+    reg = load_registry()
+    rls_config = get_rls_config(reg)
+    
+    if "collections" not in rls_config:
+        rls_config["collections"] = {}
+    
+    rls_config["collections"][collection] = {
+        "user_field": user_field,
+        "enforcement": enforcement or rls_config.get("enforcement_mode", "base_only")
+    }
+    
+    reg["rls_config"] = rls_config
+    save_registry(reg)
+    return reg
+
+def get_rls_collection_field(collection: str, reg: Dict | None = None) -> str:
+    """Get the user field for a specific collection."""
+    reg = reg or load_registry()
+    rls_config = get_rls_config(reg)
+    
+    # Check collection-specific override
+    if collection in rls_config.get("collections", {}):
+        return rls_config["collections"][collection]["user_field"]
+    
+    # Return default
+    return rls_config.get("default_user_field", "user_id")
+
+def delete_rls_collection_config(collection: str) -> Dict:
+    """Remove RLS configuration for a specific collection."""
+    reg = load_registry()
+    rls_config = get_rls_config(reg)
+    
+    if "collections" in rls_config and collection in rls_config["collections"]:
+        del rls_config["collections"][collection]
+        reg["rls_config"] = rls_config
+        save_registry(reg)
+    
+    return reg
+

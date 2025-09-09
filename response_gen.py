@@ -6,7 +6,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 # reuse the structured search
-from search_agent_new import run_search_agent, get_memory_prompt       # returns (spec, rows_text)
+from search_agent_new import run_search_agent       # returns (spec, rows_text)
+from cache_memory import get_memory_prompt  # Use enhanced version with session_id support
 
 from lang_detect import LangDetectAgent       # ① import
 mem = LangDetectAgent()      
@@ -27,16 +28,19 @@ MATCH_CONTEXT = render_match_context("")
 
 PROMPT_MAIN = textwrap.dedent("""\
 You are **Insight AI**, a domain-agnostic data analysis assistant.                                                                          |
-Your mission: Deliver **clear, confident, and fully data-backed** answers using **only** the provided `rows`.  
+Your mission: Deliver **clear, confident, and fully data-backed** answers using **only** the provided `rows`and `MEMORY_CONTEXT`.  
 
 ---
 
 ### **Core Task**
 1. Read the question carefully.  
-2. Use `rows` to calculate or summarize the answer.  
-3. If `rows` is empty or starts with “⚠️”, reply:  
-“No relevant data found for this query. Please refine your question based on available entities or attributes.”  
-4. Tailor your response focus depending on the type of query:  
+2. Use `rows`+ `MEMORY_CONTEXT` to calculate or summarize the answer. 
+    - Use `MEMORY_CONTEXT` for the follow up questions(Detect by context).
+3.  If `rows` is empty or starts with “⚠️”,then use `MEMORY_CONTEXT` and if it is still not found then reply:  
+“No relevant data found for this query. Please refine your question based on available entities or attributes.” 
+4. If the query refers to an **ambiguous entity** (e.g., “Vivek” but dataset has multiple `Vivek`s with different surnames/IDs),  
+   then **return results for all matching entities** instead of assuming one. Present them in a clear comparative or list format. ✅ 
+5. Tailor your response focus depending on the type of query:  
     - **Entity queries** → summarize key metrics, performance, or attributes of that entity.  
     - **Comparison queries** → contrast multiple entities, highlight differences and similarities.  
     - **Trend/analytics queries** → emphasize patterns, insights, and notable changes over time.  
@@ -73,9 +77,9 @@ Your mission: Deliver **clear, confident, and fully data-backed** answers using 
 ---
 
 ### **Tone & Style**
-- Heading  and the important information should be in bold and highlighted ans also font size is 1 pointer bigger that other (Alwaysand must important), confident, energetic, Clear and straight forward. Use cricket jargon (“death-over threat,” “fantasy gem,” “clean striker”).
+- Heading  and the important information should be in **bold** and highlighted and also font size is 1 pointer bigger that other (Alwaysand must important), confident, energetic, Clear and straight forward. Use cricket jargon (“death-over threat,” “fantasy gem,” “clean striker”).
 - Sprinkle relevant emojis (📊⚡✅🔥📈) to enhance readability.  
-- Always match the **language of the question**. If language detection fails, reply:  
+- Always match the **language of the question**(language can be hinglish or any other language). If language detection fails, reply:  
 “Language not detected. Please re-ask in another language.”  
 - Keep answers tight, structured, and engaging.  
 
@@ -85,23 +89,24 @@ Your mission: Deliver **clear, confident, and fully data-backed** answers using 
 - No speculation, only use the data provided.  
 - Every claim must tie directly to `rows`.  
 - No external knowledge or fabricated stats.  
+- If `rows` is empty or irrelevant, THEN ANSWER USING THE MEMORY CONTEXT.
 - If a query is unrelated to available data, politely redirect with:  
-“No relevant data found for this query. Please refine your question.”  
+“No relevant data found for this query. Please refine your question.And chech for the Access of the data”  
 """)
 
 
-PROMPT_TONE_STYLE = textwrap.dedent("""\
-""")
+# PROMPT_TONE_STYLE = textwrap.dedent("""\
+# """)
 
 
-PROMPT_FORMATTING = textwrap.dedent("""\
-""")
+# PROMPT_FORMATTING = textwrap.dedent("""\
+# """)
 
 reg = load_registry()
 CORE_RULES_TEXT = render_core_rules(get_collection_names(reg))
 
-memory_context = get_memory_prompt(1)
-print("Memory context for prompt(response_gen):", memory_context)  # Debugging line
+ # last 3 Q&A pairs
+# print("Memory context for prompt(response_gen):", memory_context)  # Debugging line
 
 PROMPT_Q_AND_ROWS = textwrap.dedent("""\
     <User Question>
@@ -111,28 +116,31 @@ PROMPT_Q_AND_ROWS = textwrap.dedent("""\
     {rows}
                                     
     <Memory Context>
-    {memory_context} \n\n"Ignore any of the last 3 answers that say 'no data available' or similar for reasoning."
+    {memory_context} \n\n"Ignore any of the last answers that say 'no data available' or similar for reasoning."
                                     
     <Language>
     {language} , Answer in this language.
+                IF the language if hinglish means the acent is Hindi but the script is English then reply in Hinglish only.
+                
+    <SOURCE QUERY>
+    {source_query}, In the end of the answer,Show this source query as the sourse of the data you are using to answer the question with the heading 'Source Query'and ahow only text not with the query syntex.And Dont show the query in sigle line give query in the actual query and in text formate format,dont show in code block.
                                     
 """)
-
+# "tone_style": PROMPT_TONE_STYLE,
+#     "formatting": PROMPT_FORMATTING,
+# memory_context = get_memory_prompt(3, user_id, team_id)
 DEFAULT_PROMPT_SECTIONS = {
     "main": PROMPT_MAIN,
-    "tone_style": PROMPT_TONE_STYLE,
-    "formatting": PROMPT_FORMATTING,
-    'memory_context': memory_context
+    # 'memory_context': memory_context
 }
 
-
-def compose_prompt(sections, question, rows, language, memory_context):
+def compose_prompt(sections, question, rows, language, memory_context, source_query):
     """Join prompt sections and append the question/rows block."""
     body_tmpl = "\n\n".join(sections.values())
     # supply BOTH keys used in your templates
     body = body_tmpl.format(language=language, core_rules=CORE_RULES_TEXT)
-    qa = PROMPT_Q_AND_ROWS.format(question=question, rows=rows, memory_context=memory_context,language=language)
-    return f"{body}\n\n{qa}"
+    qa = PROMPT_Q_AND_ROWS.format(question=question, rows=rows, memory_context=memory_context,language=language, source_query=source_query)
+    return f"{qa}\n\n{body}"
 
 
 # ---------- driver ----------
@@ -153,80 +161,80 @@ def compose_prompt(sections, question, rows, language, memory_context):
 
 #     return reply.content, spec, rows_text
 
-def answer_question(query: str, streaming: bool = False, prompt_sections=None, history=None):
-    # STEP 0 – detect language only (standalone rewrite ignored)
-    lang = mem.detect_language(query)
+# def answer_question(query: str, streaming: bool = False, prompt_sections=None, history=None):
+#     # STEP 0 – detect language only (standalone rewrite ignored)
+#     lang = mem.detect_language(query)
 
-    # STEP 1 – structured DB search using the original query
-    spec, rows_text, dbg = run_search_agent(query,history=memory_context)
+#     # STEP 1 – structured DB search using the original query
+#     spec, rows_text, dbg = run_search_agent(query,history=memory_context)
 
-    # STEP 2 – narrative answer in the detected language
-    rows_clean = rows_text or "(no rows)"
-    sections = prompt_sections or DEFAULT_PROMPT_SECTIONS
-    prompt = compose_prompt(sections, question=query, rows=rows_clean, language=lang)
+#     # STEP 2 – narrative answer in the detected language
+#     rows_clean = rows_text or "(no rows)"
+#     sections = prompt_sections or DEFAULT_PROMPT_SECTIONS
+#     prompt = compose_prompt(sections, question=query, rows=rows_clean, language=lang)
 
-    # Add last 3 memories to the prompt
-    memories = get_last_memories(1)
-    if memories:
-        mem_text = "\n\n".join(
-            [f"Previous Q: {m['query']}\nPrevious A: {m['answer']}" for m in memories]
-        )
-        prompt = f"{mem_text}\n\n{prompt}"
+#     # Add last 3 memories to the prompt
+#     memories = get_last_memories(3)
+#     if memories:
+#         mem_text = "\n\n".join(
+#             [f"Previous Q: {m['query']}\nPrevious A: {m['answer']}" for m in memories]
+#         )
+#         prompt = f"{mem_text}\n\n{prompt}"
 
-    messages = [
-        SystemMessage(content="You are a domain-agnostic, grounded Database QA assistant."),
-        SystemMessage(content=(MATCH_CONTEXT or "").strip()),
-        HumanMessage(content=prompt),
-    ]
+#     messages = [
+#         SystemMessage(content="You are a domain-agnostic, grounded Database QA assistant."),
+#         SystemMessage(content=(MATCH_CONTEXT or "").strip()),
+#         HumanMessage(content=prompt),
+#     ]
 
-    if streaming:
-        def _gen():
-            answer_parts = []
-            for chunk in narrator.stream(messages):
-                token = getattr(chunk, "content", "")
-                answer_parts.append(token)
-                yield token
-            full = "".join(answer_parts)
-            mem.update(query, full)
-            save_to_cache(query, full)
-        return _gen(), spec, rows_text
+#     if streaming:
+#         def _gen():
+#             answer_parts = []
+#             for chunk in narrator.stream(messages):
+#                 token = getattr(chunk, "content", "")
+#                 answer_parts.append(token)
+#                 yield token
+#             full = "".join(answer_parts)
+#             mem.update(query, full)
+#             save_to_cache(query, full)
+#         return _gen(), spec, rows_text
 
-    reply = narrator.invoke(messages)
+#     reply = narrator.invoke(messages)
 
-    # keep conversation memory fresh
-    mem.update(query, reply.content)
-    save_to_cache(query, reply.content)
-    return reply.content, spec, rows_text
+#     # keep conversation memory fresh
+#     mem.update(query, reply.content)
+#     save_to_cache(query, reply.content)
+#     return reply.content, spec, rows_text
 
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python response_gen.py \"<your question>\"")
-        sys.exit(1)
+# if __name__ == "__main__":
+#     if len(sys.argv) < 2:
+#         print("Usage: python response_gen.py \"<your question>\"")
+#         sys.exit(1)
 
-    q = sys.argv[1]
-    answer, spec, raw = answer_question(q,history = memory_context)
+#     q = sys.argv[1]
+#     answer, spec, raw = answer_question(q,history = memory_context)
 
-    print("\n=== NATURAL-LANGUAGE ANSWER ===\n")
-    print(answer)
+#     print("\n=== NATURAL-LANGUAGE ANSWER ===\n")
+#     print(answer)
 
-    # optional: persist run
-    Path("last_nl_run.json").write_text(json.dumps({
-        "query": q,
-        "spec": spec,
-        "rows": raw,
-        "answer": answer
-    }, indent=2))
+#     # optional: persist run
+#     Path("last_nl_run.json").write_text(json.dumps({
+#         "query": q,
+#         "spec": spec,
+#         "rows": raw,
+#         "answer": answer
+#     }, indent=2))
 
 
 def get_suggested_questions(q:str,answer: str, max_questions=3,custom_prompt=None) -> list[str]:
     """
     Given the current assistant's answer, generate up to `max_questions`
-    relevant follow-up questions about cricket players, venues, matches, etc.
+    
     """
     prompt = f"""
-    You are an expert fantasy cricket assistant. Based on the answer below, suggest up to {max_questions} relevant follow-up questions
+    You are a suggested question assistant. Based on the answer below, suggest up to {max_questions} relevant follow-up questions
     a user might want to ask next to continue the conversation.  List each question as a bullet point starting with '-'.
     Query text:
     {q}
