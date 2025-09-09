@@ -1,0 +1,730 @@
+{
+  "options_max": 20,
+  "collections": {
+    "user_list": {
+      "description": "",
+      "fields": [
+        {
+          "name": "user_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the user",
+          "options": []
+        },
+        {
+          "name": "blood_group",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "User's blood group, if available",
+          "options": []
+        },
+        {
+          "name": "department_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the user's department",
+          "options": []
+        },
+        {
+          "name": "department_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the user's department",
+          "options": [
+            "Admin",
+            "Administration",
+            "Data Analyst",
+            "Designers",
+            "Developers",
+            "Finance",
+            "Human Resource",
+            "Marketing",
+            "Network Admin",
+            "Project Managers",
+            "Quality Assurance",
+            "VOPL"
+          ]
+        },
+        {
+          "name": "designation_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the user's designation",
+          "options": []
+        },
+        {
+          "name": "designation_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the user's designation",
+          "options": []
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "User's email address",
+          "options": []
+        },
+        {
+          "name": "emp_type",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Type of employment (e.g., Employee, Service Provider)",
+          "options": [
+            "Employee",
+            "Ex-Employee",
+            "HouseKeeping",
+            "Service Provider",
+            "Work From Home"
+          ]
+        },
+        {
+          "name": "emp_type_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the employment type",
+          "options": []
+        },
+        {
+          "name": "first_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "User's first name",
+          "options": []
+        },
+        {
+          "name": "gender",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "User's gender represented as an integer code",
+          "options": []
+        },
+        {
+          "name": "joining_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Date when the user joined the organization",
+          "options": []
+        },
+        {
+          "name": "last_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "User's last name",
+          "options": []
+        },
+        {
+          "name": "marital_status",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "User's marital status represented as an integer code",
+          "options": []
+        },
+        {
+          "name": "mobile",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "User's mobile phone number",
+          "options": []
+        }
+      ]
+    },
+    "user_leave_list": {
+      "description": "",
+      "fields": [
+        {
+          "name": "leave_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the leave request",
+          "options": []
+        },
+        {
+          "name": "approved_at",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Timestamp when the leave was approved, null if not approved",
+          "options": []
+        },
+        {
+          "name": "end_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "End date and time of the leave period",
+          "options": []
+        },
+        {
+          "name": "first_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "First name of the user requesting leave",
+          "options": []
+        },
+        {
+          "name": "last_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Last name of the user requesting leave",
+          "options": []
+        },
+        {
+          "name": "leave_type_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Identifier for the type of leave",
+          "options": []
+        },
+        {
+          "name": "leave_type_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name or description of the leave type",
+          "options": []
+        },
+        {
+          "name": "reason",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Reason provided for the leave request",
+          "options": []
+        },
+        {
+          "name": "rejected_at",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Timestamp when the leave was rejected, null if not rejected",
+          "options": []
+        },
+        {
+          "name": "requested_at",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Timestamp when the leave was requested",
+          "options": []
+        },
+        {
+          "name": "start_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Start date and time of the leave period",
+          "options": []
+        },
+        {
+          "name": "status",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Current status of the leave request represented as an integer",
+          "options": []
+        },
+        {
+          "name": "user_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the user requesting leave",
+          "options": []
+        }
+      ]
+    },
+    "device_list": {
+      "description": "",
+      "fields": [
+        {
+          "name": "device_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the device",
+          "options": []
+        },
+        {
+          "name": "camera_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the camera",
+          "options": []
+        },
+        {
+          "name": "camera_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name or label assigned to the camera",
+          "options": [
+            "CAM_IN_001",
+            "CAM_IN_002",
+            "CAM_OUT_001",
+            "CAM_OUT_002",
+            "CAM_PANT_IN_001",
+            "CAM_PANT_OUT_001"
+          ]
+        },
+        {
+          "name": "device_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name or label assigned to the device",
+          "options": [
+            "Dev Floor-1",
+            "Dev Floor-2",
+            "Ground Floor-1",
+            "Ground Floor-2",
+            "Pantry-1",
+            "Pantry-2"
+          ]
+        },
+        {
+          "name": "device_type",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Numeric code representing the type of device",
+          "options": []
+        },
+        {
+          "name": "location",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Physical location where the device is installed",
+          "options": [
+            "Development Floor",
+            "Ground Floor",
+            "Pantry"
+          ]
+        },
+        {
+          "name": "zone_desc",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Description of the zone's purpose or characteristics",
+          "options": [
+            "Area designated for breaks or idle time",
+            "Area where productive work happens"
+          ]
+        },
+        {
+          "name": "zone_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the zone",
+          "options": []
+        },
+        {
+          "name": "zone_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the zone",
+          "options": [
+            "Development Floor",
+            "Ground Floor",
+            "Pantry"
+          ]
+        },
+        {
+          "name": "zone_type_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the type of zone",
+          "options": []
+        },
+        {
+          "name": "zone_type_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the zone type",
+          "options": [
+            "Break Zone",
+            "Productive Zone"
+          ]
+        }
+      ]
+    },
+    "activity_list": {
+      "description": "",
+      "fields": [
+        {
+          "name": "activity_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for each activity record",
+          "options": []
+        },
+        {
+          "name": "activity_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Timestamp when the activity occurred",
+          "options": []
+        },
+        {
+          "name": "activity_time",
+          "type": "float",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Duration of the activity in seconds",
+          "options": []
+        },
+        {
+          "name": "activity_type",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Type/category of the activity represented as an integer",
+          "options": []
+        },
+        {
+          "name": "break_count",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Number of breaks taken during the activity",
+          "options": []
+        },
+        {
+          "name": "break_time",
+          "type": "float",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Total break time in seconds during the activity",
+          "options": []
+        },
+        {
+          "name": "cluster_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Identifier for the cluster image associated with the activity, if any",
+          "options": []
+        },
+        {
+          "name": "cluster_type",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Type/category of the cluster represented as an integer",
+          "options": []
+        },
+        {
+          "name": "day_cluster_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Identifier for the daily cluster image associated with the activity",
+          "options": []
+        },
+        {
+          "name": "device_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the device capturing the activity",
+          "options": []
+        },
+        {
+          "name": "device_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the device capturing the activity",
+          "options": [
+            "Dev Floor-1",
+            "Dev Floor-2",
+            "Ground Floor-1",
+            "Ground Floor-2",
+            "Pantry-1",
+            "Pantry-2"
+          ]
+        },
+        {
+          "name": "display_cluster_row",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Row position for displaying the cluster in UI or reports",
+          "options": []
+        },
+        {
+          "name": "display_row",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Row position for displaying the activity in UI or reports",
+          "options": []
+        },
+        {
+          "name": "face_score",
+          "type": "float",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Confidence score for face recognition in the activity",
+          "options": []
+        },
+        {
+          "name": "first_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "First name of the user associated with the activity",
+          "options": []
+        },
+        {
+          "name": "is_vest",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Indicator if the user is wearing a vest (1 for yes, 0 for no)",
+          "options": []
+        },
+        {
+          "name": "last_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Last name of the user associated with the activity",
+          "options": []
+        },
+        {
+          "name": "movement_tracker_row",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Row position for movement tracking display or processing",
+          "options": []
+        },
+        {
+          "name": "old_processed_by",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Identifier of the previous processor of the activity record",
+          "options": []
+        },
+        {
+          "name": "old_user_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Previous user identifier associated with the activity",
+          "options": []
+        },
+        {
+          "name": "processed_by",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Identifier of the current processor of the activity record",
+          "options": []
+        },
+        {
+          "name": "productive_time",
+          "type": "float",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Amount of productive time in seconds during the activity",
+          "options": []
+        },
+        {
+          "name": "user_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier of the user associated with the activity",
+          "options": []
+        }
+      ]
+    }
+  },
+  "core_rules": {
+    "mode": "auto",
+    "custom_text": ""
+  },
+  "user_match_context": "",
+  "connection": {
+    "mongo_uri": "159.65.147.30:27017",
+    "mongo_db": "stg_cv_live_rag_data"
+  },
+  "user_access": {
+    "Praveen": [
+      "user_list",
+      "device_list",
+      "activity_list"
+    ],
+    "Manish": [
+      "user_list",
+      "activity_list"
+    ]
+  },
+  "rls_config": {
+    "enabled": false,
+    "default_user_field": "user_id",
+    "enforcement_mode": "base_only",
+    "bypass_roles": [
+      "admin",
+      "super_user"
+    ],
+    "audit_enabled": true,
+    "collections": {}
+  }
+}
