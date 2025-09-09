@@ -1,0 +1,170 @@
+{
+  "options_max": 100,
+  "collections": {
+    "user_leave_list": {
+      "description": "",
+      "fields": [
+        {
+          "name": "leave_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the leave request",
+          "options": []
+        },
+        {
+          "name": "approved_at",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Timestamp when the leave was approved, null if not approved",
+          "options": []
+        },
+        {
+          "name": "end_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "End date and time of the leave period",
+          "options": []
+        },
+        {
+          "name": "first_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "First name of the user requesting leave",
+          "options": []
+        },
+        {
+          "name": "last_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Last name of the user requesting leave",
+          "options": []
+        },
+        {
+          "name": "leave_type_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Identifier for the type of leave",
+          "options": []
+        },
+        {
+          "name": "leave_type_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name or description of the leave type",
+          "options": []
+        },
+        {
+          "name": "reason",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Reason provided for the leave request",
+          "options": []
+        },
+        {
+          "name": "rejected_at",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Timestamp when the leave was rejected, null if not rejected",
+          "options": []
+        },
+        {
+          "name": "requested_at",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Timestamp when the leave was requested",
+          "options": []
+        },
+        {
+          "name": "start_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Start date and time of the leave period",
+          "options": []
+        },
+        {
+          "name": "status",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Current status of the leave request represented as an integer",
+          "options": []
+        },
+        {
+          "name": "user_id",
+          "type": "int",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Unique identifier for the user requesting leave",
+          "options": []
+        }
+      ]
+    }
+  },
+  "core_rules": {
+    "mode": "auto",
+    "custom_text": ""
+  },
+  "user_match_context": "",
+  "connection": {
+    "mongo_uri": "159.65.147.30:27017",
+    "mongo_db": "stg_cv_live_rag_data"
+  },
+  "user_access": {
+    "aru": [
+      "user_leave_list"
+    ]
+  },
+  "rls_config": {
+    "enabled": true,
+    "default_user_field": "user_id",
+    "enforcement_mode": "base_only",
+    "bypass_roles": [
+      "admin",
+      "super_user"
+    ],
+    "audit_enabled": true,
+    "collections": {
+      "user_leave_list": {
+        "user_field": "user_id",
+        "enforcement": "base_only"
+      }
+    }
+  }
+}
