@@ -1,5 +1,6 @@
 # cric_chat_ui.py
 # Front-end for Perfect Lineup Chatbot 🏏   (uses search_agent_new + response_gen)
+import re
 from uuid import uuid4
 import uuid, json, inspect
 from pathlib import Path
@@ -10,9 +11,11 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_openai import ChatOpenAI
 
 # --- BACK-END IMPORTS --------------------------------------------
-from search_agent_new import run_search_agent, get_memory_prompt        # returns (spec, rows_text)
+from search_agent_new import run_search_agent        # returns (spec, rows_text)
+#sections_rt = dict(st.session_state.prompt_sections)   # shallow copy
+from cache_memory import get_memory_prompt  # Use our new function that supports session_id
 from response_gen import DEFAULT_PROMPT_SECTIONS, compose_prompt, get_suggested_questions
-from response_gen import narrator                      # ChatOpenAI instance
+# from response_gen import narrator                      # ChatOpenAI instance
 
 # --- Collection metadata for rows formatting ---
 # COLL_META = {
@@ -22,13 +25,13 @@ from response_gen import narrator                      # ChatOpenAI instance
 #     "upcoming_match": ("upcoming_match_90696_summary","upcoming_match collection – contains prediction data and details of upcoming match"),
 # }
 from schema_registry import load_registry, get_collection_names, get_descriptions
-
+from  llm_services import call_narrator_model
 
 # Default suggested questions settings
 DEFAULT_SUGGESTED_QUESTIONS_PROMPT = """\
 Generate relevant follow-up questions based on the user's original question and the assistant's answer. Focus on:
-Questions should be short(10-12 words) and simple also highly relevant to the context (match, players, or venue) according to the Question and Answer.
-Make questions specific, actionable, and likely to provide valuable insights for fantasy cricket users.
+Questions should be short(10-12 words) and simple also highly relevant to the context according to the Question and Answer.
+Make questions specific, actionable, and likely to provide valuable insights for the users.
 """
 
 DEFAULT_SUGGESTED_QUESTIONS_COUNT = 3
@@ -72,7 +75,7 @@ def build_rows_for_prompt(dbg: dict) -> str:
         if not docs:
             blocks.append(f"# {coll}\n(no rows)")
             continue
-        blob = "\n\n".join("```json\n" + json.dumps(d, indent=2, default=str) + "\n```" for d in docs[:30])
+        blob = "\n\n".join("```json\n" + json.dumps(d, indent=2, default=str) + "\n```" for d in docs)
         blocks.append(f"# {coll}\n{blob}")
     return "\n\n".join(blocks) or "(no rows)"
 
@@ -148,20 +151,442 @@ def get_cb(container):
 # --- 2.  Page styling (copied from your old frontend) -------------
 st.set_page_config(page_title="Data QA Chat", page_icon="🧠", layout="wide")
 
+# Initialize session state variables before using them
+if "chat" not in st.session_state: st.session_state.chat = []
+if "sid"  not in st.session_state: st.session_state.sid  = str(uuid.uuid4())
+# Make session ID visible in sidebar
+if "display_session_id" not in st.session_state: st.session_state.display_session_id = True
+# store prompt blocks so edits persist
+if "prompt_sections" not in st.session_state:
+    # start with the library defaults so text areas show initial values
+    st.session_state.prompt_sections = DEFAULT_PROMPT_SECTIONS.copy()
+
 with st.sidebar:
     st.markdown("<h2 style='text-align:left;'>User Panel</h2>", unsafe_allow_html=True)
+    
     # Initialize user_name in session state if missing
     if "user_name" not in st.session_state:
         st.session_state.user_name = ""
+    if "team_id" not in st.session_state:
+        st.session_state.team_id = ""
+        
+    # User inputs (keep these separate from RLS)
     user_name = st.text_input("User Name", value=st.session_state.user_name, key="user_name_sidebar")
     st.session_state.user_name = user_name
+    team_id = st.text_input("Team ID", value=st.session_state.team_id, key="team_id_sidebar")
+    st.session_state.team_id = team_id
+    
+    # Show user's collection access if they have a username
+    if user_name and user_name != "anonymous":
+        try:
+            from schema_registry import get_user_collections
+            accessible_collections = get_user_collections(user_name)
+            
+            if accessible_collections:
+                with st.expander("Your Collection Access", expanded=False):
+                    st.write("You have access to these collections:")
+                    for coll in accessible_collections:
+                        st.write(f"• {coll}")
+            else:
+                st.info("You have no specific collection access permissions.")
+        except Exception as e:
+            st.error(f"Error checking collection access: {e}")
+    
+    # RLS User ID Selection (separate from user name/team)
+    st.divider()
+    st.markdown("### 🔒 Row-Level Security (RLS)")
+    st.caption("Select which user's data you want to see (for testing RLS)")
+    
+    # Get RLS configuration to show bypass roles
+    try:
+        from schema_registry import get_rls_config
+        rls_config = get_rls_config()
+        bypass_roles = rls_config.get("bypass_roles", ["admin", "super_user"])
+        
+        # Show current RLS settings
+        if rls_config.get("enabled", False):
+            st.success("🟢 RLS is enabled")
+            st.caption(f"Bypass roles: {', '.join(bypass_roles)}")
+        else:
+            st.warning("🟡 RLS is disabled in admin settings")
+            
+    except Exception as e:
+        st.error(f"Error loading RLS config: {e}")
+        bypass_roles = ["admin", "super_user"]
+    
+    # User role selection
+    all_roles = ["user", "customer", "employee"] + bypass_roles
+    user_role = st.selectbox(
+        "User Role",
+        options=all_roles,
+        index=0,
+        help=f"Select user role. Bypass roles ({', '.join(bypass_roles)}) will see all data regardless of RLS user ID"
+    )
+    
+    # Store user role in session state
+    st.session_state.user_role = user_role
+    
+    # Initialize RLS values in session state
+    if "rls_values" not in st.session_state:
+        st.session_state.rls_values = {}
+    
+    # Get available user_ids from database first (needed for fallback)
+    try:
+        from schema_registry import get_connection_config, load_registry
+        from pymongo import MongoClient
+        
+        cfg = get_connection_config(load_registry())
+        if cfg.get("mongo_uri") and cfg.get("mongo_db"):
+            client = MongoClient(cfg["mongo_uri"])
+            db = client[cfg["mongo_db"]]
+            
+            # Get unique user_ids from collections
+            user_ids = set()
+            if "user_leave_list" in db.list_collection_names():
+                user_ids.update(db.user_leave_list.distinct("user_id"))
+            # Add other collections as needed
+            
+            available_user_ids = sorted([str(uid) for uid in user_ids if uid is not None])
+        else:
+            available_user_ids = ["1", "85", "25", "42", "73"]
+    except Exception as e:
+        st.error(f"Could not fetch user IDs: {e}")
+        available_user_ids = ["1", "85", "25", "42", "73"]
+
+    # Multi-layer RLS authentication fields
+    try:
+        from schema_registry import get_rls_layers, get_available_rls_fields_for_collection, get_collection_names
+        rls_layers = get_rls_layers()
+        
+        if rls_layers:
+            st.markdown("#### Authentication Values")
+            st.caption("Set values for each authentication layer")
+            
+            # Show field availability info
+            all_collections = get_collection_names()
+            if all_collections:
+                with st.expander("Field Availability", expanded=False):
+                    for layer in rls_layers:
+                        if not layer.get("enabled", True):
+                            continue
+                        field_name = layer.get("field_name", "")
+                        display_name = layer.get("display_name", field_name)
+                        
+                        available_in = []
+                        for collection in all_collections:
+                            available_fields = get_available_rls_fields_for_collection(collection)
+                            if field_name in available_fields:
+                                available_in.append(collection)
+                        
+                        if available_in:
+                            st.write(f"**{display_name}**: ✅ Available in {len(available_in)} collections")
+                            st.caption(f"Collections: {', '.join(available_in)}")
+                        else:
+                            st.write(f"**{display_name}**: ❌ Not found in any collection")
+            
+            # Create input fields for each enabled layer
+            for layer in rls_layers:
+                if not layer.get("enabled", True):
+                    continue
+                    
+                field_name = layer.get("field_name", "")
+                display_name = layer.get("display_name", field_name)
+                
+                # Get current value
+                current_value = st.session_state.rls_values.get(field_name, "")
+                
+                # Special handling for user_id field - show dropdown with available options
+                if field_name.lower() == "user_id":
+                    new_value = st.selectbox(
+                        f"{display_name}",
+                        options=[""] + available_user_ids,
+                        index=available_user_ids.index(current_value) + 1 if current_value in available_user_ids else 0,
+                        help=f"Select {display_name.lower()} for authentication",
+                        key=f"rls_input_{field_name}"
+                    )
+                else:
+                    # Text input for other fields
+                    new_value = st.text_input(
+                        f"{display_name}",
+                        value=current_value,
+                        help=f"Enter value for {display_name.lower()} authentication",
+                        key=f"rls_input_{field_name}"
+                    )
+                
+                # Update session state
+                st.session_state.rls_values[field_name] = new_value
+        
+        else:
+            # Fallback to single user_id field if no layers configured
+            st.markdown("#### RLS User Selection")
+            rls_user_id = st.selectbox(
+                "RLS Filter User ID",
+                options=[""] + available_user_ids,
+                index=0,
+                help="Select user_id for RLS filtering"
+            )
+            st.session_state.rls_values = {"user_id": rls_user_id} if rls_user_id else {}
+    
+    except Exception as e:
+        # Fallback to original single-field approach if anything goes wrong
+        st.error(f"Error loading RLS layers: {e}")
+        st.markdown("#### RLS User Selection (Fallback)")
+        rls_user_id = st.selectbox(
+            "RLS Filter User ID",
+            options=[""] + available_user_ids,
+            index=0,
+            help="Select user_id for RLS filtering"
+        )
+        st.session_state.rls_values = {"user_id": rls_user_id} if rls_user_id else {}
+    
+    # Show what RLS will do
+    active_values = {k: v for k, v in st.session_state.rls_values.items() if v and v.strip()}
+    if active_values:
+        if user_role in bypass_roles:
+            st.success(f"🔓 Role '{user_role}' bypasses RLS - will see all data")
+        else:
+            st.info(f"🔒 RLS active with filters: {active_values}")
+    else:
+        st.caption("No RLS values set - will see all data")
+
+    # Session ID management
+    st.divider()
+    st.markdown("<h4>Session Management</h4>", unsafe_allow_html=True)
+    
+    # Import the function to get unique session IDs
+    from cache_memory import get_unique_session_ids
+    
+    # Display current session ID with better styling
+    current_sid = st.session_state.sid
+    st.markdown(f"**Active Session**: `{current_sid}`")
+    
+    # Get available session IDs for the current user/team
+    user_id = st.session_state.get("user_name", "anonymous")
+    team_id = st.session_state.get("team_id", "default_team")
+    available_sessions = get_unique_session_ids(user_id, team_id)
+    
+    # Add a visual indicator for the active session
+    session_status_container = st.empty()
+    if current_sid in available_sessions:
+        session_status_container.success("Using saved session")
+    else:
+        session_status_container.info("Using new session")
+    
+    # Initialize selected_session variable
+    selected_session = "Current Session"
+    
+    # Only show dropdown if there are previous sessions
+    if available_sessions:
+        # Add "Current" option at the top
+        session_options = ["Current Session"] + available_sessions
+        
+        # Add key to track the previously selected session for detecting changes
+        if "previous_selected_session" not in st.session_state:
+            st.session_state.previous_selected_session = "Current Session"
+            
+        selected_session = st.selectbox(
+            "Select Previous Session", 
+            options=session_options,
+            help="Choose a previous session to continue"
+        )
+        
+        # Auto-load chat history when session selection changes
+        if selected_session != st.session_state.previous_selected_session:
+            # Save the new selection to detect future changes
+            st.session_state.previous_selected_session = selected_session
+            
+            if selected_session == "Current Session":
+                # Switching back to current session
+                if st.session_state.sid != current_sid:
+                    # Restore the current session ID
+                    st.session_state.sid = current_sid
+                    # Clear chat to start fresh
+                    st.session_state.chat = []
+                    st.toast("Switched to new session", icon="🆕")
+                    st.rerun()
+            else:
+                # Loading a previous session
+                from cache_memory import load_chat_history
+                
+                # Load chat history for this session
+                chat_history = load_chat_history(user_id, team_id, selected_session)
+                
+                # Update chat state with loaded history and set the session ID
+                if chat_history:  # Only update if we actually found chat history
+                    st.session_state.chat = chat_history
+                    st.session_state.sid = selected_session
+                    st.toast(f"Loaded session with {len(chat_history)//2} messages", icon="✅")
+                    st.rerun()  # Refresh to show the loaded chat
+    else:
+        st.info("No previous sessions found. Start chatting to create a new session.")
+    from cache_memory import load_chat_history, get_session_details
+    # Apply the selected session ID if it's not "Current Session"
+    if selected_session != "Current Session" or selected_session in available_sessions:
+        # Import the functions to load chat history and get session details
+        from cache_memory import load_chat_history, get_session_details, rename_session, delete_session
+        
+        # Get session details for display
+        if selected_session in available_sessions:
+            # Show session management UI regardless of whether we have details
+            with st.expander("Session Management", expanded=True):
+                session_details = get_session_details(selected_session)
+                
+                # Show session details if available
+                if session_details:
+                    st.write(f"**Session ID:** {selected_session}")
+                    #st.write(f"**Messages:** {session_details['message_count']}")
+                    st.write(f"**Started:** {session_details['started'].strftime('%Y-%m-%d %H:%M')}")
+                    st.write(f"**Last active:** {session_details['last_active'].strftime('%Y-%m-%d %H:%M')}")
+                    # st.write(f"**First question:** {session_details['first_query']}")
+                    # st.write(f"**Last question:** {session_details['last_query']}")
+                else:
+                    st.write(f"**Session ID:** {selected_session}")
+                    st.warning("Detailed session information not available")
+                
+                # Add session renaming feature - always show
+                st.divider()
+                st.write("**Rename Session**")
+                new_session_id = st.text_input(
+                    "New Session ID", 
+                    key=f"rename_{selected_session}", 
+                    placeholder="Enter a memorable name"
+                )
+                if st.button("Rename Session", key=f"rename_btn_{selected_session}"):
+                    if new_session_id and new_session_id != selected_session:
+                        renamed = rename_session(selected_session, new_session_id)
+                        if renamed > 0:
+                            st.success(f"Renamed session! {renamed} messages updated.")
+                            # Update current session ID if we're renaming the active session
+                            if selected_session == current_sid:
+                                st.session_state.sid = new_session_id
+                            st.rerun()
+                        else:
+                            st.error("Failed to rename session.")
+                
+                # Add session deletion feature - always show
+                st.divider()
+                st.write("**Delete Session**")
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    confirm_delete = st.checkbox(f"Confirm deletion of session '{selected_session}'", key=f"confirm_delete_{selected_session}")
+                with col2:
+                    if st.button("Delete Session", key=f"delete_{selected_session}", disabled=not confirm_delete, type="primary", help="This action cannot be undone"):
+                        if confirm_delete:
+                            deleted = delete_session(selected_session, user_id, team_id)
+                            if deleted > 0:
+                                st.success(f"Deleted session! {deleted} messages removed.")
+                                # If we're deleting the current session, create a new one
+                                if selected_session == current_sid:
+                                    st.session_state.sid = str(uuid.uuid4())
+                                    st.session_state.chat = []
+                                st.session_state.previous_selected_session = "Current Session"
+                                st.rerun()
+                            else:
+                                st.error("Failed to delete session or session was empty.")        # Add button to refresh the session (in case it was updated in another tab/window)
+        with st.container():
+            refresh_col1, refresh_col2 = st.columns([1, 3])
+            with refresh_col1:
+                if st.button("🔄 Refresh", key="refresh_session_btn", help="Refresh this session"):
+                    # Load chat history for this session
+                    chat_history = load_chat_history(user_id, team_id, selected_session)
+                    
+                    # Update chat state with loaded history
+                    st.session_state.chat = chat_history
+                    
+                    # Display a success message and reload
+                    st.success(f"Refreshed session {selected_session} with {len(chat_history)//2} messages")
+                    st.rerun()
+    
+    # Option to generate a new session ID
+    st.divider()
+    
+    # Add new session input and button
+    if "new_session_name" not in st.session_state:
+        st.session_state.new_session_name = ""
+    
+    new_session_col1, new_session_col2 = st.columns([3, 1])
+    
+    with new_session_col1:
+        new_session_name = st.text_input(
+            "New Session Name (optional)",
+            key="new_session_name_input",
+            value=st.session_state.new_session_name,
+            placeholder="Enter a name or leave blank for auto-ID"
+        )
+    
+    with new_session_col2:
+        if st.button("New Session", help="Start a fresh session with a new ID"):
+            # Use custom name if provided, otherwise generate UUID
+            if new_session_name.strip():
+                st.session_state.sid = new_session_name.strip()
+                st.session_state.new_session_name = ""  # Clear the input
+            else:
+                st.session_state.sid = str(uuid.uuid4())
+            
+            # Clear chat history and refresh
+            st.session_state.chat = []
+            st.session_state.previous_selected_session = "Current Session"
+            st.toast(f"Created new session: {st.session_state.sid}", icon="🆕")
+            st.rerun()
+    
+    # Toggle visibility of session ID in chat memory
+    st.session_state.display_session_id = st.checkbox(
+        "Track Sessions", 
+        value=st.session_state.display_session_id,
+        help="Store session ID with chat history"
+    )
+    
     st.divider()
     st.markdown("<h4>Chat Cache</h4>", unsafe_allow_html=True)
 
     # Import view_cache here or earlier if you want
-
-    from cache_memory import view_cache
-    st.write("Current cache:", view_cache()[-1:])
+    from cache_memory import view_cache, clear_cache
+    
+    # Create cache view filter options
+    cache_filter = st.radio("Cache view filter:", 
+                           ["Current Session Only", "Current User Only","All Sessions"],
+                           horizontal=True)
+    
+    # Apply appropriate filters based on selection
+    if cache_filter == "Current Session Only":
+        cache_entries = view_cache(
+            user_id=st.session_state.user_name, 
+            team_id=st.session_state.team_id,
+            session_id=st.session_state.sid
+        )
+        st.write(f"Current session cache ({len(cache_entries)} entries):")
+    elif cache_filter == "Current User Only":
+        cache_entries = view_cache(
+            user_id=st.session_state.user_name, 
+            team_id=st.session_state.team_id
+        )
+        st.write(f"User cache ({len(cache_entries)} entries):")
+    else:
+        cache_entries = view_cache()
+        st.write(f"All cache entries ({len(cache_entries)} total):")
+        
+    if cache_entries:
+        st.write(cache_entries)  # Show latest entry
+        
+    # Add button to clear filtered cache
+    if st.button("Clear Filtered Cache", help="Clear cache based on current filter"):
+        if cache_filter == "All Sessions":
+            cleared = clear_cache()
+            
+        elif cache_filter == "Current User Only":
+            cleared = clear_cache(
+                user_id=st.session_state.user_name, 
+                team_id=st.session_state.team_id
+            )
+        else:
+            cleared = clear_cache(
+                user_id=st.session_state.user_name, 
+                team_id=st.session_state.team_id,
+                session_id=st.session_state.sid
+            )
+            
+        st.success(f"Cleared {cleared} cache entries")
+        st.rerun()
 
 st.markdown(Path("frontend.css").read_text() if Path("frontend.css").exists() else """<style>
 .chat-container{background:#fff;border-radius:8px;padding:10px;margin-bottom:20px;min-height:60vh;overflow-y:auto}
@@ -176,12 +601,7 @@ st.markdown(Path("frontend.css").read_text() if Path("frontend.css").exists() el
 </style>""", unsafe_allow_html=True)
 
 # --- 3.  Session state -------------------------------------------
-if "chat" not in st.session_state: st.session_state.chat = []
-if "sid"  not in st.session_state: st.session_state.sid  = str(uuid.uuid4())
-# store prompt blocks so edits persist
-if "prompt_sections" not in st.session_state:
-    # start with the library defaults so text areas show initial values
-    st.session_state.prompt_sections = DEFAULT_PROMPT_SECTIONS.copy()
+# Session state variables are now initialized at the top of the file
 # if "mem_agent" not in st.session_state:
 #     from memory_agent import MemoryAgent
 #     st.session_state.mem_agent = MemoryAgent(k=5)
@@ -192,11 +612,16 @@ st.markdown('<h1 class="title">Data QA Chat</h1>', unsafe_allow_html=True)
 if st.button("Clear Chat"): st.session_state.chat = []; st.rerun()
 
 chat_tab, prompt_tab = st.tabs(["Chat", "Prompt Settings"])
-
+import time
 with chat_tab:
+    t1= time.time()
     if "pending_question" not in st.session_state:
         st.session_state.pending_question = None
-        
+    
+    # Clear the skip_suggestions flag for new interactions
+    if "skip_suggestions" in st.session_state:
+        del st.session_state.skip_suggestions
+
     # Debug: Check if we have a pending question
     if st.session_state.pending_question:
         print(f"Found pending question: {st.session_state.pending_question}")
@@ -242,14 +667,31 @@ with chat_tab:
 
             # STEP 1 – structured search on the rewritten question
             with st.spinner("Planning and retrieving documents 📂️..."):
-                spec, rows_text, dbg = run_search_agent(standalone_q, callbacks=[step_cb],history=get_memory_prompt(1))
+                user_id = st.session_state.get("user_name", "anonymous")
+                team_id = st.session_state.get("team_id", "default_team")
+                # Get session ID if tracking sessions
+                session_id = st.session_state.sid if st.session_state.display_session_id else None
+                spec, rows_text, dbg = run_search_agent(user_id, team_id, standalone_q, callbacks=[step_cb], session_id=session_id)
                 step_cb.render()  # show steps up to now
 
+            # Check if the user attempted to access restricted collections
+            attempted_restricted = False
+            if rows_text and rows_text.startswith("⚠️ Access denied:"):
+                attempted_restricted = True
+                st.warning(rows_text)
+                
+            # Prepare debug info
             dbg_box = st.expander("Debug info", expanded=False)
             debug_content = {
-                "Query Spec": spec,  # Includes filters, sort, and limit
+                "Query Spec": spec,
                 "MongoDB Filters": dbg.get("filters", []),
                 "Chosen Collections": dbg.get("chosen_collections", []),
+                "Restricted Collections": dbg.get("restricted_collections", []),
+                "RLS Status": {
+                    "rls_values": st.session_state.get("rls_values", {}),
+                    "user_role": st.session_state.get("user_role"),
+                    "bypass_active": user_role in bypass_roles if 'bypass_roles' in locals() else False
+                },
                 "Raw Results": rows_text
             }
             dbg_box.code(json.dumps(debug_content, indent=2, default=str), language="json")
@@ -263,55 +705,84 @@ with chat_tab:
                 lang = mem.detect_language(q)
                 print('Detected_languadge:',lang)  # Detect language of the question
 
-                rows_clean = rows_text or "(no rows)"
-
                 # 1) Build a structured rows blob from chosen collections (no raw JSON)
                 rows_clean = build_rows_for_prompt(dbg)
+                
+                # Check for access denied messages
+                access_denied = rows_text and rows_text.startswith("⚠️ Access denied:")
 
-                # 2) Append enabled “Answering Templates” ONLY into PROMPT_FORMATTING
-                sections_rt = dict(st.session_state.prompt_sections)   # shallow copy
-                formatting_text = sections_rt.get("formatting", "")
-
-                enabled_templates = [
-                    t["text"] for t in st.session_state.answering_templates
-                    if t.get("enabled") and t.get("text","").strip()
-                ]
-                if enabled_templates:
-                    formatting_text = (formatting_text.rstrip() + "\n\n" + "\n\n".join(enabled_templates)).strip()
-                sections_rt["formatting"] = formatting_text  # PROMPT_FORMATTING only
-
-                # 3) Compose final prompt with structured rows + augmented formatting
-                prompt = compose_prompt(
-                    sections_rt,  # make sure to use sections_rt, not original
-                    question=q,
-                    rows=rows_clean,
-                    language=lang,
-                    memory_context=get_memory_prompt(1)  # get last 3 memories
-                )
-
-                prompt_debug = st.expander("Prompt sent to LLM", expanded=False)
-                prompt_debug.code(prompt, language="markdown")
-
-                stream = narrator.stream(
-                    [HumanMessage(content=prompt)],
-                    config={"callbacks": [step_cb]}
-                )
-                answer = ""
-                for chunk in stream:
-                    token = getattr(chunk, "content", "")
-                    answer += token
+                if access_denied:
+                    # Use a custom error message for access denied
+                    answer = f"{rows_text}\n\nPlease contact an administrator if you need access to this collection."
                     resp_container.markdown(answer)
+                    st.session_state.chat.append(("assistant", answer))
+                    
+                       # Save memory to cache
+                    from cache_memory import save_to_cache
+                    session_id = st.session_state.sid if st.session_state.display_session_id else None
+                    # Clean the answer for memory - remove code blocks and source query sections
+                    answer_for_memory = re.sub(r'```[\s\S]*?```', '', answer)
+                    answer_for_memory = re.sub(r'Source Query[:\s]*[\s\S]*$', '', answer_for_memory, flags=re.IGNORECASE).strip()
+                    answer_for_memory = re.sub(r'\{[^{}]*\}', '', answer_for_memory)
+                    save_to_cache(q, answer_for_memory, user_id, team_id, session_id=session_id)
+                    st.session_state.skip_suggestions = True
+                else:
+                    # Only execute this block if access is not denied
+                    # 2) Append enabled "Answering Templates" ONLY into PROMPT_FORMATTING
+                    sections_rt = dict(st.session_state.prompt_sections)   # shallow copy
+                    
+                    formatting_text = sections_rt.get("formatting", "")
 
-                step_cb.render()
+                    enabled_templates = [
+                        t["text"] for t in st.session_state.answering_templates
+                        if t.get("enabled") and t.get("text","").strip()
+                    ]
+                    if enabled_templates:
+                        formatting_text = (formatting_text.rstrip() + "\n\n" + "\n\n".join(enabled_templates)).strip()
+                    sections_rt["formatting"] = formatting_text  # PROMPT_FORMATTING only
 
-            st.session_state.chat.append(("assistant", answer))
+                    # 3) Compose final prompt with structured rows + augmented formatting
+                    # Get session ID if tracking sessions
+                    session_id = st.session_state.sid if st.session_state.display_session_id else None
+                    
+                    prompt = compose_prompt(
+                        sections_rt,  # make sure to use sections_rt, not original
+                        question=q,
+                        rows=rows_clean,
+                        language=lang,
+                        memory_context=get_memory_prompt(3, user_id, team_id, session_id)
+                    )
 
-            # Save memory to cache
-            from cache_memory import save_to_cache
-            save_to_cache(q, answer)
+                    st.code(dbg.get("filters")) 
+                    
+                    prompt_debug = st.expander("Prompt sent to LLM", expanded=False)
+                    prompt_debug.code(prompt, language="markdown")
 
-            # NEW: Generate and display suggested questions (only if enabled)
-            if st.session_state.suggested_questions_settings.get("enabled", True):
+                  # Convert to proper message format for call_narrator_model
+                    messages = [{"role": "user", "content": prompt}]
+                    
+                    # Stream the answer
+                    stream = call_narrator_model(messages, stream=True)
+                    print("Streaming response...###############################")
+                    answer = ""
+                    for chunk in stream:
+                        if chunk:  # Only process non-empty chunks
+                            answer += chunk
+                            if resp_container:
+                                resp_container.markdown(answer)
+                    # --- After streaming, try to generate charts ---
+
+                    step_cb.render()
+
+                    st.session_state.chat.append(("assistant", answer))
+
+                    # Save memory to cache
+                    from cache_memory import save_to_cache
+                    session_id = st.session_state.sid if st.session_state.display_session_id else None
+                    save_to_cache(q, answer, user_id, team_id, session_id=session_id)
+
+            # NEW: Generate and display suggested questions (only if enabled and access wasn't denied)
+            if st.session_state.suggested_questions_settings.get("enabled", True) and not st.session_state.get("skip_suggestions", False):
                 with st.spinner("Generating suggested questions..."):
                     try:
                         # Use custom settings for suggested questions
@@ -321,7 +792,7 @@ with chat_tab:
                         # Pass custom prompt to get_suggested_questions function
                         # Note: You may need to modify get_suggested_questions to accept custom_prompt parameter
                         suggested_questions = get_suggested_questions(
-                            q, answer, 
+                            q, answer, Row_data=rows_clean,
                             max_questions=max_questions,
                             custom_prompt=custom_prompt  # This parameter may need to be added to the function
                         )
@@ -354,6 +825,8 @@ with chat_tab:
                                         pass  # Remove st.rerun() from here
                     except Exception as e:
                         st.error(f"Error generating suggestions: {e}")
+                    t2 = time.time()
+                    print(f"Total time for processing question: {t2 - t1:.6f} seconds")
 
 with prompt_tab:
     st.markdown("### Prompt Sections")

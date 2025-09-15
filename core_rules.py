@@ -66,6 +66,43 @@ def render_schema_section_all(
     return "\n".join(lines)
 
 
+def render_schema_section_with_relations(all_fields: Dict[str, List[Dict]], descriptions: Dict[str, str], options_max: int) -> str:
+    """Render schema section including relationship information for joins."""
+    from schema_registry import get_collection_relations
+    
+    lines = []
+    for coll_name, fields in all_fields.items():
+        desc = descriptions.get(coll_name, "")
+        if desc:
+            lines.append(f"**{coll_name}** ({desc}):")
+        else:
+            lines.append(f"**{coll_name}**:")
+        
+        # Add fields
+        for fld in fields:
+            ops = ", ".join(fld["operations"])
+            desc = fld.get("description", "")
+            options_part = ""
+            if fld.get("options"):
+                opts = fld["options"][:5]  # Show first 5 options
+                if len(fld["options"]) > 5:
+                    options_part = f" → {opts}... (and {len(fld['options'])-5} more)"
+                else:
+                    options_part = f" → {opts}"
+            lines.append(f"  - {fld['name']} ({fld['type']}) [{ops}]{options_part} - {desc}")
+        
+        # Add available joins/relationships
+        relations = get_collection_relations(coll_name)
+        if relations:
+            lines.append(f"  **Available Joins from {coll_name}:**")
+            for rel in relations:
+                lines.append(f"    - alias: '{rel['alias']}' → {rel['ref_collection']} "
+                           f"(JOIN ON {coll_name}.{rel['local_field']} = {rel['ref_collection']}.{rel['foreign_field']})")
+        lines.append("")
+    
+    return "\n".join(lines)
+
+
 # --- Backward-compat shim so older imports keep working ---
 def render_schema_section(coll_map, searchable_fields, coll_desc, options_max: int = 20):
     """
