@@ -6,17 +6,18 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 # reuse the structured search
-from search_agent_new import run_search_agent, get_memory_prompt       # returns (spec, rows_text)
+from search_agent_new import run_search_agent       # returns (spec, rows_text)
+from cache_memory import get_memory_prompt  # Use enhanced version with session_id support
 
 from lang_detect import LangDetectAgent       # ① import
 mem = LangDetectAgent()      
-
+from llm_services import  call_narrator_model
 # response_gen.py  (only the prompt build bits)
 from schema_registry import load_registry, get_collection_names
 from core_rules import render_core_rules, render_match_context
 
 # ---------- LLM for narration ----------
-narrator = ChatOpenAI(model="gpt-4.1-mini", temperature=0.3)
+# narrator = ChatOpenAI(model="gpt-4.1-mini", temperature=0.3)
 from cache_memory import save_to_cache, get_last_memories
 
 reg = load_registry()
@@ -27,21 +28,26 @@ MATCH_CONTEXT = render_match_context("")
 
 PROMPT_MAIN = textwrap.dedent("""\
 You are **Insight AI**, a domain-agnostic data analysis assistant.                                                                          |
-Your mission: Deliver **clear, confident, and fully data-backed** answers using **only** the provided `rows`.  
+Your mission: Deliver **clear, confident, and fully data-backed** answers using **only** the provided `rows`and `MEMORY_CONTEXT`.  
 
 ---
 
 ### **Core Task**
 1. Read the question carefully.  
-2. Use `rows` to calculate or summarize the answer.  
-3. If `rows` is empty or starts with “⚠️”, reply:  
-“No relevant data found for this query. Please refine your question based on available entities or attributes.”  
+2. Use `rows`+ `MEMORY_CONTEXT` to calculate or summarize the answer. 
+    - Use `MEMORY_CONTEXT` for the follow up questions(Detect by context).
+3.  If `rows` is empty or starts with “⚠️”,then use `MEMORY_CONTEXT` and if it is still not found then reply:  
+“No relevant data found for this query. Please refine your question based on available entities or attributes.” 
 4. Tailor your response focus depending on the type of query:  
     - **Entity queries** → summarize key metrics, performance, or attributes of that entity.  
     - **Comparison queries** → contrast multiple entities, highlight differences and similarities.  
     - **Trend/analytics queries** → emphasize patterns, insights, and notable changes over time.  
     - **Category/aggregate queries** → group, rank, or summarize based on available data fields.  
-
+5. If the query refers to an **ambiguous entity** (e.g., “Vivek” but dataset has multiple `Vivek`s with different surnames/IDs),  
+   then **do NOT generate an answer**. Instead reply:  
+   “Multiple possible matches found. Please specify which one you mean.”  
+    Actually we have to requestioning the user for clarification.and that will be in max 3 lines(Most Important)
+   Please provide more details about the entity you are referring to, such as its attributes or related context.
 ---
 
 ### **Required Answer Format**
@@ -73,9 +79,9 @@ Your mission: Deliver **clear, confident, and fully data-backed** answers using 
 ---
 
 ### **Tone & Style**
-- Heading  and the important information should be in bold and highlighted ans also font size is 1 pointer bigger that other (Alwaysand must important), confident, energetic, Clear and straight forward. Use cricket jargon (“death-over threat,” “fantasy gem,” “clean striker”).
+- Heading  and the important information should be in **bold** and highlighted and also font size is 1 pointer bigger that other (Alwaysand must important), confident, energetic, Clear and straight forward. Use cricket jargon (“death-over threat,” “fantasy gem,” “clean striker”).
 - Sprinkle relevant emojis (📊⚡✅🔥📈) to enhance readability.  
-- Always match the **language of the question**. If language detection fails, reply:  
+- Always match the **language of the question**(language can be hinglish or any other language). If language detection fails, reply:  
 “Language not detected. Please re-ask in another language.”  
 - Keep answers tight, structured, and engaging.  
 
@@ -85,23 +91,24 @@ Your mission: Deliver **clear, confident, and fully data-backed** answers using 
 - No speculation, only use the data provided.  
 - Every claim must tie directly to `rows`.  
 - No external knowledge or fabricated stats.  
+- If `rows` is empty or irrelevant, THEN ANSWER USING THE MEMORY CONTEXT.
 - If a query is unrelated to available data, politely redirect with:  
-“No relevant data found for this query. Please refine your question.”  
+“No relevant data found for this query. Please refine your question.And chech for the Access of the data”  
 """)
 
 
-PROMPT_TONE_STYLE = textwrap.dedent("""\
-""")
+# PROMPT_TONE_STYLE = textwrap.dedent("""\
+# """)
 
 
-PROMPT_FORMATTING = textwrap.dedent("""\
-""")
+# PROMPT_FORMATTING = textwrap.dedent("""\
+# """)
 
 reg = load_registry()
 CORE_RULES_TEXT = render_core_rules(get_collection_names(reg))
 
-memory_context = get_memory_prompt(1)
-print("Memory context for prompt(response_gen):", memory_context)  # Debugging line
+ # last 3 Q&A pairs
+# print("Memory context for prompt(response_gen):", memory_context)  # Debugging line
 
 PROMPT_Q_AND_ROWS = textwrap.dedent("""\
     <User Question>
@@ -111,20 +118,20 @@ PROMPT_Q_AND_ROWS = textwrap.dedent("""\
     {rows}
                                     
     <Memory Context>
-    {memory_context} \n\n"Ignore any of the last 3 answers that say 'no data available' or similar for reasoning."
+    {memory_context} \n\n"Ignore any of the last answers that say 'no data available' or similar for reasoning."
                                     
     <Language>
     {language} , Answer in this language.
-                                    
+                IF the language if hinglish means the acent is Hindi but the script is English then reply in Hinglish only.
+                                                     
 """)
-
+# "tone_style": PROMPT_TONE_STYLE,
+#     "formatting": PROMPT_FORMATTING,
+# memory_context = get_memory_prompt(3, user_id, team_id)
 DEFAULT_PROMPT_SECTIONS = {
     "main": PROMPT_MAIN,
-    "tone_style": PROMPT_TONE_STYLE,
-    "formatting": PROMPT_FORMATTING,
-    'memory_context': memory_context
+    # 'memory_context': memory_context
 }
-
 
 def compose_prompt(sections, question, rows, language, memory_context):
     """Join prompt sections and append the question/rows block."""
@@ -132,104 +139,25 @@ def compose_prompt(sections, question, rows, language, memory_context):
     # supply BOTH keys used in your templates
     body = body_tmpl.format(language=language, core_rules=CORE_RULES_TEXT)
     qa = PROMPT_Q_AND_ROWS.format(question=question, rows=rows, memory_context=memory_context,language=language)
-    return f"{body}\n\n{qa}"
-
-
-# ---------- driver ----------
-# def answer_question(query: str):
-#     from lang_detect import MemoryAgent
-#     mem = MemoryAgent(k=5)
-#     standalone_q = mem.process(query)
-#     spec, rows_text = run_search_agent(standalone_q)
-
-
-#     rows_clean = rows_text or "(no rows)"
-#     msg = NL_PROMPT.format(question=query, rows=rows_clean)
-
-#     reply = narrator.invoke([
-#         SystemMessage(content="You are Perplexity-style sports analyst."),
-#         HumanMessage(content=msg)
-#     ])
-
-#     return reply.content, spec, rows_text
-
-def answer_question(query: str, streaming: bool = False, prompt_sections=None, history=None):
-    # STEP 0 – detect language only (standalone rewrite ignored)
-    lang = mem.detect_language(query)
-
-    # STEP 1 – structured DB search using the original query
-    spec, rows_text, dbg = run_search_agent(query,history=memory_context)
-
-    # STEP 2 – narrative answer in the detected language
-    rows_clean = rows_text or "(no rows)"
-    sections = prompt_sections or DEFAULT_PROMPT_SECTIONS
-    prompt = compose_prompt(sections, question=query, rows=rows_clean, language=lang)
-
-    # Add last 3 memories to the prompt
-    memories = get_last_memories(1)
-    if memories:
-        mem_text = "\n\n".join(
-            [f"Previous Q: {m['query']}\nPrevious A: {m['answer']}" for m in memories]
-        )
-        prompt = f"{mem_text}\n\n{prompt}"
-
-    messages = [
-        SystemMessage(content="You are a domain-agnostic, grounded Database QA assistant."),
-        SystemMessage(content=(MATCH_CONTEXT or "").strip()),
-        HumanMessage(content=prompt),
-    ]
-
-    if streaming:
-        def _gen():
-            answer_parts = []
-            for chunk in narrator.stream(messages):
-                token = getattr(chunk, "content", "")
-                answer_parts.append(token)
-                yield token
-            full = "".join(answer_parts)
-            mem.update(query, full)
-            save_to_cache(query, full)
-        return _gen(), spec, rows_text
-
-    reply = narrator.invoke(messages)
-
-    # keep conversation memory fresh
-    mem.update(query, reply.content)
-    save_to_cache(query, reply.content)
-    return reply.content, spec, rows_text
+    return f"{qa}\n\n{body}"
 
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python response_gen.py \"<your question>\"")
-        sys.exit(1)
-
-    q = sys.argv[1]
-    answer, spec, raw = answer_question(q,history = memory_context)
-
-    print("\n=== NATURAL-LANGUAGE ANSWER ===\n")
-    print(answer)
-
-    # optional: persist run
-    Path("last_nl_run.json").write_text(json.dumps({
-        "query": q,
-        "spec": spec,
-        "rows": raw,
-        "answer": answer
-    }, indent=2))
 
 
-def get_suggested_questions(q:str,answer: str, max_questions=3,custom_prompt=None) -> list[str]:
+def get_suggested_questions(q: str, answer: str, Row_data: str, max_questions=3, custom_prompt=None) -> list[str]:
     """
-    Given the current assistant's answer, generate up to `max_questions`
-    relevant follow-up questions about cricket players, venues, matches, etc.
+    Generate suggested follow-up questions using dedicated narrator function
     """
     prompt = f"""
-    You are an expert fantasy cricket assistant. Based on the answer below, suggest up to {max_questions} relevant follow-up questions
-    a user might want to ask next to continue the conversation.  List each question as a bullet point starting with '-'.
+    You are an expert fantasy cricket assistant. Based on the answer below, suggest up to {max_questions} relevant follow-up questions,only generate types of questions which is related to row data provided.
+    And tou have to Genrate question that user can ask next to continue the conversation.
+    a user might want to ask next to continue the conversation. List each question as a bullet point starting with '-'.
+    
     Query text:
     {q}
+    Row data:
+    {Row_data}
     Answer text:
     \"\"\"
     {answer}
@@ -238,24 +166,35 @@ def get_suggested_questions(q:str,answer: str, max_questions=3,custom_prompt=Non
     Suggested questions:
     -
     """
-      # Debugging line
-    final_prompt = f"{prompt}\n\n{custom_prompt}"
-     # Debugging line
-        # Use your existing ChatOpenAI instance (narrator) for generation
-    response = narrator.generate([[HumanMessage(content=final_prompt)]])
-    text = response.generations[0][0].text.strip()
+    
+    # Add custom prompt if provided
+    final_prompt = f"{prompt}\n\n{custom_prompt}" if custom_prompt else prompt
+    
+    try:
+        # Use dedicated narrator function (non-streaming)
+        messages = [{"role": "user", "content": final_prompt}]
+        text = call_narrator_model(messages, stream=False)
+        print('Suggested Questions#########################################################')
+        print(f"Raw response for suggested questions: {text}")  # Debugging line
+        # text = response.content.strip()
+        
 
-    questions = []
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("-"):
-            q = line[1:].strip()
-            if q:
-                questions.append(q)
-        if len(questions) >= max_questions:
-            break
+        questions = []
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith("-"):
+                q = line[1:].strip()
+                if q:
+                    questions.append(q)
+            if len(questions) >= max_questions:
+                break
 
-    return questions
+        return questions
+
+        
+    except Exception as e:
+        print(f"Error generating suggested questions: {e}")
+        return []
 
 
 

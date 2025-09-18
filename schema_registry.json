@@ -1,0 +1,1066 @@
+{
+  "options_max": 100,
+  "collections": {
+    "appointments": {
+      "description": "",
+      "fields": [
+        {
+          "name": "appointment_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each appointment",
+          "options": []
+        },
+        {
+          "name": "patient_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each patient",
+          "options": [
+            "P001",
+            "P002",
+            "P003",
+            "P004",
+            "P005",
+            "P007",
+            "P008",
+            "P009",
+            "P010",
+            "P011",
+            "P012",
+            "P013",
+            "P014",
+            "P016",
+            "P017",
+            "P018",
+            "P019",
+            "P020",
+            "P021",
+            "P022",
+            "P023",
+            "P024",
+            "P025",
+            "P026",
+            "P027",
+            "P028",
+            "P029",
+            "P030",
+            "P031",
+            "P032",
+            "P033",
+            "P034",
+            "P035",
+            "P036",
+            "P037",
+            "P038",
+            "P039",
+            "P040",
+            "P041",
+            "P042",
+            "P043",
+            "P044",
+            "P045",
+            "P046",
+            "P047",
+            "P048",
+            "P049",
+            "P050"
+          ]
+        },
+        {
+          "name": "doctor_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each doctor",
+          "options": [
+            "D001",
+            "D002",
+            "D003",
+            "D004",
+            "D005",
+            "D006",
+            "D007",
+            "D008",
+            "D009",
+            "D010"
+          ]
+        },
+        {
+          "name": "appointment_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Date when the appointment is scheduled",
+          "options": []
+        },
+        {
+          "name": "appointment_time",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Time when the appointment is scheduled",
+          "options": []
+        },
+        {
+          "name": "reason_for_visit",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Purpose or reason for the appointment",
+          "options": [
+            "Checkup",
+            "Consultation",
+            "Emergency",
+            "Follow-up",
+            "Therapy"
+          ]
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Current status of the appointment (e.g., Completed, No-show, Scheduled)",
+          "options": [
+            "Cancelled",
+            "Completed",
+            "No-show",
+            "Scheduled"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "alias": "doctor_appointments",
+          "ref_collection": "doctors",
+          "local_field": "doctor_id",
+          "foreign_field": "doctor_id",
+          "cardinality": "many_to_one",
+          "join_type": "inner"
+        },
+        {
+          "alias": "patient_appointments",
+          "ref_collection": "patients",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "inner"
+        },
+        {
+          "alias": "patients",
+          "ref_collection": "patients",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "billing",
+          "ref_collection": "billing",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "treatments",
+          "ref_collection": "treatments",
+          "local_field": "appointment_id",
+          "foreign_field": "appointment_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "doctors",
+          "ref_collection": "doctors",
+          "local_field": "doctor_id",
+          "foreign_field": "doctor_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        }
+      ]
+    },
+    "patients": {
+      "description": "",
+      "fields": [
+        {
+          "name": "patient_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each patient",
+          "options": [
+            "P001",
+            "P002",
+            "P003",
+            "P004",
+            "P005",
+            "P006",
+            "P007",
+            "P008",
+            "P009",
+            "P010",
+            "P011",
+            "P012",
+            "P013",
+            "P014",
+            "P015",
+            "P016",
+            "P017",
+            "P018",
+            "P019",
+            "P020",
+            "P021",
+            "P022",
+            "P023",
+            "P024",
+            "P025",
+            "P026",
+            "P027",
+            "P028",
+            "P029",
+            "P030",
+            "P031",
+            "P032",
+            "P033",
+            "P034",
+            "P035",
+            "P036",
+            "P037",
+            "P038",
+            "P039",
+            "P040",
+            "P041",
+            "P042",
+            "P043",
+            "P044",
+            "P045",
+            "P046",
+            "P047",
+            "P048",
+            "P049",
+            "P050"
+          ]
+        },
+        {
+          "name": "first_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's first name",
+          "options": [
+            "Alex",
+            "David",
+            "Emily",
+            "Jane",
+            "John",
+            "Laura",
+            "Linda",
+            "Michael",
+            "Robert",
+            "Sarah"
+          ]
+        },
+        {
+          "name": "last_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's last name",
+          "options": [
+            "Brown",
+            "Davis",
+            "Johnson",
+            "Jones",
+            "Miller",
+            "Moore",
+            "Smith",
+            "Taylor",
+            "Williams",
+            "Wilson"
+          ]
+        },
+        {
+          "name": "gender",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's gender, represented as a single character",
+          "options": [
+            "F",
+            "M"
+          ]
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Patient's date of birth in YYYY-MM-DD format",
+          "options": []
+        },
+        {
+          "name": "contact_number",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's phone contact number",
+          "options": [
+            "6141951830",
+            "6158428240",
+            "6221099573",
+            "6278710077",
+            "6347262390",
+            "6622318721",
+            "6636028516",
+            "6939585183",
+            "7020645498",
+            "7028910482",
+            "7039619487",
+            "7040069008",
+            "7060324619",
+            "7081396733",
+            "7090558393",
+            "7145815738",
+            "7196777444",
+            "7223380592",
+            "7292262512",
+            "7482069727",
+            "7561777264",
+            "7579616535",
+            "7587653815",
+            "7712937941",
+            "7734463155",
+            "7765390555",
+            "7923214041",
+            "8019925828",
+            "8102183595",
+            "8135666049",
+            "8158989953",
+            "8228188767",
+            "8280346676",
+            "8301134730",
+            "8374657733",
+            "8397029847",
+            "8545613046",
+            "8618058864",
+            "8715732851",
+            "8720989381",
+            "8724518272",
+            "8886800195",
+            "8923607677",
+            "8990604070",
+            "9019443432",
+            "9059178882",
+            "9127665406",
+            "9271131338",
+            "9449458981",
+            "9900972256"
+          ]
+        },
+        {
+          "name": "address",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's residential address",
+          "options": [
+            "123 Elm St",
+            "321 Maple Dr",
+            "456 Oak Ave",
+            "789 Pine Rd"
+          ]
+        },
+        {
+          "name": "registration_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Date when the patient registered in the system",
+          "options": []
+        },
+        {
+          "name": "insurance_provider",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the patient's insurance provider",
+          "options": [
+            "HealthIndia",
+            "MedCare Plus",
+            "PulseSecure",
+            "WellnessCorp"
+          ]
+        },
+        {
+          "name": "insurance_number",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's insurance policy number",
+          "options": [
+            "INS104014",
+            "INS118070",
+            "INS136631",
+            "INS156958",
+            "INS172991",
+            "INS182074",
+            "INS250262",
+            "INS258823",
+            "INS276089",
+            "INS297392",
+            "INS319963",
+            "INS320984",
+            "INS335362",
+            "INS337549",
+            "INS348710",
+            "INS354079",
+            "INS364512",
+            "INS368799",
+            "INS373237",
+            "INS465890",
+            "INS467654",
+            "INS493002",
+            "INS542905",
+            "INS544209",
+            "INS545101",
+            "INS580761",
+            "INS584299",
+            "INS598863",
+            "INS613758",
+            "INS630089",
+            "INS635017",
+            "INS650929",
+            "INS653880",
+            "INS679036",
+            "INS694319",
+            "INS701863",
+            "INS712210",
+            "INS730152",
+            "INS764076",
+            "INS788105",
+            "INS789944",
+            "INS833429",
+            "INS840674",
+            "INS855073",
+            "INS866577",
+            "INS882355",
+            "INS897079",
+            "INS922209",
+            "INS956748",
+            "INS997059"
+          ]
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's email address",
+          "options": [
+            "alex.johnson@mail.com",
+            "alex.moore@mail.com",
+            "alex.smith@mail.com",
+            "alex.taylor@mail.com",
+            "david.davis@mail.com",
+            "david.moore@mail.com",
+            "david.smith@mail.com",
+            "david.williams@mail.com",
+            "david.wilson@mail.com",
+            "emily.jones@mail.com",
+            "emily.miller@mail.com",
+            "emily.moore@mail.com",
+            "emily.smith@mail.com",
+            "emily.williams@mail.com",
+            "jane.jones@mail.com",
+            "jane.moore@mail.com",
+            "jane.smith@mail.com",
+            "jane.wilson@mail.com",
+            "john.brown@mail.com",
+            "john.taylor@mail.com",
+            "laura.davis@mail.com",
+            "laura.johnson@mail.com",
+            "laura.jones@mail.com",
+            "laura.wilson@mail.com",
+            "linda.brown@mail.com",
+            "linda.johnson@mail.com",
+            "linda.jones@mail.com",
+            "linda.miller@mail.com",
+            "linda.moore@mail.com",
+            "michael.johnson@mail.com",
+            "michael.taylor@mail.com",
+            "michael.wilson@mail.com",
+            "robert.miller@mail.com",
+            "robert.taylor@mail.com",
+            "robert.williams@mail.com",
+            "robert.wilson@mail.com",
+            "sarah.brown@mail.com",
+            "sarah.johnson@mail.com",
+            "sarah.miller@mail.com"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "alias": "appointments",
+          "ref_collection": "appointments",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "billing",
+          "ref_collection": "billing",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        }
+      ]
+    },
+    "billing": {
+      "description": "",
+      "fields": [
+        {
+          "name": "bill_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each bill",
+          "options": []
+        },
+        {
+          "name": "patient_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each patient",
+          "options": [
+            "P001",
+            "P002",
+            "P003",
+            "P004",
+            "P005",
+            "P007",
+            "P008",
+            "P009",
+            "P010",
+            "P011",
+            "P012",
+            "P013",
+            "P014",
+            "P016",
+            "P017",
+            "P018",
+            "P019",
+            "P020",
+            "P021",
+            "P022",
+            "P023",
+            "P024",
+            "P025",
+            "P026",
+            "P027",
+            "P028",
+            "P029",
+            "P030",
+            "P031",
+            "P032",
+            "P033",
+            "P034",
+            "P035",
+            "P036",
+            "P037",
+            "P038",
+            "P039",
+            "P040",
+            "P041",
+            "P042",
+            "P043",
+            "P044",
+            "P045",
+            "P046",
+            "P047",
+            "P048",
+            "P049",
+            "P050"
+          ]
+        },
+        {
+          "name": "treatment_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each treatment",
+          "options": []
+        },
+        {
+          "name": "bill_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Date when the bill was issued",
+          "options": []
+        },
+        {
+          "name": "amount",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Monetary amount of the bill",
+          "options": []
+        },
+        {
+          "name": "payment_method",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Method used to pay the bill",
+          "options": [
+            "Cash",
+            "Credit Card",
+            "Insurance"
+          ]
+        },
+        {
+          "name": "payment_status",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Current status of the payment",
+          "options": [
+            "Failed",
+            "Paid",
+            "Pending"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "alias": "appointments of doctor with patients",
+          "ref_collection": "doctors",
+          "local_field": "doctor_id",
+          "foreign_field": "doctor_id",
+          "cardinality": "many_to_one",
+          "join_type": "inner"
+        },
+        {
+          "alias": "appointments",
+          "ref_collection": "appointments",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "patients",
+          "ref_collection": "patients",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "treatments",
+          "ref_collection": "treatments",
+          "local_field": "treatment_id",
+          "foreign_field": "treatment_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        }
+      ]
+    },
+    "treatments": {
+      "description": "",
+      "fields": [
+        {
+          "name": "treatment_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each treatment record",
+          "options": []
+        },
+        {
+          "name": "appointment_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Identifier linking the treatment to a specific appointment",
+          "options": []
+        },
+        {
+          "name": "treatment_type",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Type or category of the treatment administered",
+          "options": [
+            "Chemotherapy",
+            "ECG",
+            "MRI",
+            "Physiotherapy",
+            "X-Ray"
+          ]
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Brief details or notes about the treatment procedure",
+          "options": [
+            "Advanced protocol",
+            "Basic screening",
+            "Standard procedure"
+          ]
+        },
+        {
+          "name": "cost",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Monetary cost associated with the treatment",
+          "options": []
+        },
+        {
+          "name": "treatment_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Date when the treatment was performed",
+          "options": []
+        }
+      ],
+      "relations": [
+        {
+          "alias": "appointments of doctor with patients",
+          "ref_collection": "doctors",
+          "local_field": "doctor_id",
+          "foreign_field": "doctor_id",
+          "cardinality": "many_to_one",
+          "join_type": "inner"
+        },
+        {
+          "alias": "patient_billing",
+          "ref_collection": "patients",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "inner"
+        },
+        {
+          "alias": "appointments",
+          "ref_collection": "appointments",
+          "local_field": "appointment_id",
+          "foreign_field": "appointment_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "billing",
+          "ref_collection": "billing",
+          "local_field": "treatment_id",
+          "foreign_field": "treatment_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        }
+      ]
+    },
+    "doctors": {
+      "description": "",
+      "fields": [
+        {
+          "name": "doctor_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each doctor",
+          "options": [
+            "D001",
+            "D002",
+            "D003",
+            "D004",
+            "D005",
+            "D006",
+            "D007",
+            "D008",
+            "D009",
+            "D010"
+          ]
+        },
+        {
+          "name": "first_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Doctor's first name",
+          "options": [
+            "Alex",
+            "David",
+            "Jane",
+            "Linda",
+            "Robert",
+            "Sarah"
+          ]
+        },
+        {
+          "name": "last_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Doctor's last name",
+          "options": [
+            "Brown",
+            "Davis",
+            "Jones",
+            "Smith",
+            "Taylor",
+            "Wilson"
+          ]
+        },
+        {
+          "name": "specialization",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Medical specialty of the doctor",
+          "options": [
+            "Dermatology",
+            "Oncology",
+            "Pediatrics"
+          ]
+        },
+        {
+          "name": "phone_number",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Contact phone number of the doctor",
+          "options": [
+            "6176383634",
+            "6570137231",
+            "6594221991",
+            "7387087517",
+            "8217493115",
+            "8322010158",
+            "8737740598",
+            "9004382050",
+            "9069162601",
+            "9118538547"
+          ]
+        },
+        {
+          "name": "years_experience",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Number of years the doctor has practiced medicine",
+          "options": [
+            "17",
+            "19",
+            "21",
+            "23",
+            "24",
+            "26",
+            "28",
+            "5"
+          ]
+        },
+        {
+          "name": "hospital_branch",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the hospital branch where the doctor works",
+          "options": [
+            "Central Hospital",
+            "Eastside Clinic",
+            "Westside Clinic"
+          ]
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Doctor's professional email address",
+          "options": [
+            "dr.alex.davis@hospital.com",
+            "dr.david.jones@hospital.com",
+            "dr.david.taylor@hospital.com",
+            "dr.jane.davis@hospital.com",
+            "dr.jane.smith@hospital.com",
+            "dr.linda.brown@hospital.com",
+            "dr.linda.wilson@hospital.com",
+            "dr.robert.davis@hospital.com",
+            "dr.sarah.smith@hospital.com",
+            "dr.sarah.taylor@hospital.com"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "alias": "appointments",
+          "ref_collection": "appointments",
+          "local_field": "doctor_id",
+          "foreign_field": "doctor_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        }
+      ]
+    }
+  },
+  "core_rules": {
+    "mode": "override",
+    "custom_text": "when a patient asks for thier appointments give just the list of appointments without any other details at all. \nwhen a doctor asks for thier appointmnets give them the list and information around it."
+  },
+  "user_match_context": "",
+  "connection": {
+    "mongo_uri": "159.65.147.30:27017",
+    "mongo_db": "rag_hospital_management"
+  },
+  "user_access": {
+    "aru": [
+      "user_leave_list"
+    ],
+    "Manish": [
+      "user_leave_list",
+      "device_list"
+    ],
+    "Praveen": [
+      "user_leave_list",
+      "user_list",
+      "activity_list",
+      "device_list"
+    ]
+  },
+  "rls_config": {
+    "enabled": true,
+    "default_user_field": "user_id",
+    "enforcement_mode": "all_involved",
+    "bypass_roles": [
+      "admin",
+      "super_user"
+    ],
+    "audit_enabled": true,
+    "collections": {
+      "user_leave_list": {
+        "user_field": "user_id",
+        "enforcement": "base_only"
+      },
+      "doctors": {
+        "user_field": "doctor_id",
+        "enforcement": "base_only"
+      },
+      "appointments": {
+        "user_field": "patient_id",
+        "enforcement": "base_only"
+      },
+      "patients": {
+        "user_field": "patient_id",
+        "enforcement": "base_only"
+      },
+      "billing": {
+        "user_field": "patient_id",
+        "enforcement": "base_only"
+      }
+    },
+    "rls_layers": [
+      {
+        "field_name": "patient_id",
+        "display_name": "patient_id",
+        "enabled": true,
+        "order": 1
+      },
+      {
+        "field_name": "doctor_id",
+        "display_name": "doctor_id",
+        "enabled": true,
+        "order": 2
+      }
+    ]
+  }
+}
