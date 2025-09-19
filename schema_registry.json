@@ -1,0 +1,632 @@
+{
+  "options_max": 20,
+  "collections": {
+    "patients": {
+      "description": "",
+      "fields": [
+        {
+          "name": "patient_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each patient",
+          "options": []
+        },
+        {
+          "name": "first_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's first name",
+          "options": [
+            "Alex",
+            "David",
+            "Emily",
+            "Jane",
+            "John",
+            "Laura",
+            "Linda",
+            "Michael",
+            "Robert",
+            "Sarah"
+          ]
+        },
+        {
+          "name": "last_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's last name",
+          "options": [
+            "Brown",
+            "Davis",
+            "Johnson",
+            "Jones",
+            "Miller",
+            "Moore",
+            "Smith",
+            "Taylor",
+            "Williams",
+            "Wilson"
+          ]
+        },
+        {
+          "name": "gender",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's gender (e.g., M or F)",
+          "options": [
+            "F",
+            "M"
+          ]
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Patient's date of birth",
+          "options": []
+        },
+        {
+          "name": "contact_number",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's contact phone number",
+          "options": []
+        },
+        {
+          "name": "address",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's residential address",
+          "options": [
+            "123 Elm St",
+            "321 Maple Dr",
+            "456 Oak Ave",
+            "789 Pine Rd"
+          ]
+        },
+        {
+          "name": "registration_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Date when the patient registered",
+          "options": []
+        },
+        {
+          "name": "insurance_provider",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the patient's insurance provider",
+          "options": [
+            "HealthIndia",
+            "MedCare Plus",
+            "PulseSecure",
+            "WellnessCorp"
+          ]
+        },
+        {
+          "name": "insurance_number",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's insurance policy number",
+          "options": []
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Patient's email address",
+          "options": []
+        }
+      ],
+      "relations": [
+        {
+          "alias": "appointments",
+          "ref_collection": "appointments",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "billing",
+          "ref_collection": "billing",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "patient_to_appointments",
+          "ref_collection": "appointments",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "one_to_many",
+          "join_type": "inner"
+        },
+        {
+          "alias": "patient_to_billing",
+          "ref_collection": "billing",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "one_to_many",
+          "join_type": "inner"
+        }
+      ]
+    },
+    "appointments": {
+      "description": "",
+      "fields": [
+        {
+          "name": "appointment_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each appointment",
+          "options": []
+        },
+        {
+          "name": "patient_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for the patient",
+          "options": []
+        },
+        {
+          "name": "doctor_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for the doctor",
+          "options": [
+            "D001",
+            "D002",
+            "D003",
+            "D004",
+            "D005",
+            "D006",
+            "D007",
+            "D008",
+            "D009",
+            "D010"
+          ]
+        },
+        {
+          "name": "appointment_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Date of the appointment",
+          "options": []
+        },
+        {
+          "name": "appointment_time",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Time of the appointment",
+          "options": []
+        },
+        {
+          "name": "reason_for_visit",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Purpose or reason for the appointment",
+          "options": [
+            "Checkup",
+            "Consultation",
+            "Emergency",
+            "Follow-up",
+            "Therapy"
+          ]
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Current status of the appointment",
+          "options": [
+            "Cancelled",
+            "Completed",
+            "No-show",
+            "Scheduled"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "alias": "doctors",
+          "ref_collection": "doctors",
+          "local_field": "doctor_id",
+          "foreign_field": "doctor_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "patients",
+          "ref_collection": "patients",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "treatments",
+          "ref_collection": "treatments",
+          "local_field": "appointment_id",
+          "foreign_field": "appointment_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "billing",
+          "ref_collection": "billing",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "appointment_to_treatments",
+          "ref_collection": "treatments",
+          "local_field": "appointment_id",
+          "foreign_field": "appointment_id",
+          "cardinality": "one_to_many",
+          "join_type": "inner"
+        }
+      ]
+    },
+    "treatments": {
+      "description": "",
+      "fields": [
+        {
+          "name": "treatment_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each treatment record",
+          "options": []
+        },
+        {
+          "name": "appointment_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Identifier linking the treatment to a specific appointment",
+          "options": []
+        },
+        {
+          "name": "treatment_type",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Type or category of the treatment performed",
+          "options": [
+            "Chemotherapy",
+            "ECG",
+            "MRI",
+            "Physiotherapy",
+            "X-Ray"
+          ]
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Brief details or notes about the treatment",
+          "options": [
+            "Advanced protocol",
+            "Basic screening",
+            "Standard procedure"
+          ]
+        },
+        {
+          "name": "cost",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Monetary cost of the treatment in USD",
+          "options": []
+        },
+        {
+          "name": "treatment_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Date when the treatment was administered",
+          "options": []
+        }
+      ],
+      "relations": [
+        {
+          "alias": "appointments",
+          "ref_collection": "appointments",
+          "local_field": "appointment_id",
+          "foreign_field": "appointment_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "billing",
+          "ref_collection": "billing",
+          "local_field": "treatment_id",
+          "foreign_field": "treatment_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "treatment_to_billing",
+          "ref_collection": "billing",
+          "local_field": "treatment_id",
+          "foreign_field": "treatment_id",
+          "cardinality": "one_to_one",
+          "join_type": "inner"
+        }
+      ]
+    },
+    "billing": {
+      "description": "",
+      "fields": [
+        {
+          "name": "bill_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each bill",
+          "options": []
+        },
+        {
+          "name": "patient_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each patient",
+          "options": []
+        },
+        {
+          "name": "treatment_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each treatment",
+          "options": []
+        },
+        {
+          "name": "bill_date",
+          "type": "date",
+          "operations": [
+            "range",
+            "sort"
+          ],
+          "description": "Date when the bill was issued",
+          "options": []
+        },
+        {
+          "name": "amount",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Monetary amount charged in the bill",
+          "options": []
+        },
+        {
+          "name": "payment_method",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Method used to make the payment",
+          "options": [
+            "Cash",
+            "Credit Card",
+            "Insurance"
+          ]
+        },
+        {
+          "name": "payment_status",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Current status of the payment",
+          "options": [
+            "Failed",
+            "Paid",
+            "Pending"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "alias": "patients",
+          "ref_collection": "patients",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "appointments",
+          "ref_collection": "appointments",
+          "local_field": "patient_id",
+          "foreign_field": "patient_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "treatments",
+          "ref_collection": "treatments",
+          "local_field": "treatment_id",
+          "foreign_field": "treatment_id",
+          "cardinality": "many_to_one",
+          "join_type": "left"
+        },
+        {
+          "alias": "billing_to_treatment",
+          "ref_collection": "treatments",
+          "local_field": "treatment_id",
+          "foreign_field": "treatment_id",
+          "cardinality": "one_to_one",
+          "join_type": "inner"
+        }
+      ]
+    }
+  },
+  "core_rules": {
+    "mode": "append",
+    "custom_text": "Nothing"
+  },
+  "user_match_context": "\n",
+  "connection": {
+    "mongo_uri": "159.65.147.30:27017",
+    "mongo_db": "rag_hospital_management"
+  },
+  "rls_config": {
+    "enabled": true,
+    "default_user_field": "patient_id ",
+    "enforcement_mode": "all_involved",
+    "bypass_roles": [
+      "admin",
+      "super_user"
+    ],
+    "audit_enabled": true,
+    "collections": {
+      "doctors": {
+        "user_field": "doctor_id",
+        "enforcement": "all_involved"
+      },
+      "patients": {
+        "user_field": "patient_id",
+        "enforcement": "all_involved"
+      },
+      "appointments": {
+        "user_field": "patient_id",
+        "enforcement": "all_involved"
+      },
+      "billing": {
+        "user_field": "patient_id",
+        "enforcement": "all_involved"
+      }
+    },
+    "rls_layers": [
+      {
+        "field_name": "patient_id",
+        "display_name": "Patient ID",
+        "enabled": true,
+        "order": 1
+      }
+    ]
+  },
+  "user_access": {
+    "manish": [
+      "patients",
+      "appointments",
+      "treatments",
+      "billing"
+    ]
+  },
+  "response_prompt_config": {
+    "prompt_sections": {
+      "main": "You are **Insight AI**, a domain-agnostic data analysis assistant.\nYour mission: Deliver **clear, confident, and fully data-backed** answers using **only** the provided `rows`and `MEMORY_CONTEXT`.\n\n---\n\n### **Core Task**\n1. Read the question carefully.\n2. Use `rows`+ `MEMORY_CONTEXT` to calculate or summarize the answer.\n   - Use `MEMORY_CONTEXT` for the follow up questions(Detect by context).\n3. If `rows` is empty or starts with \"\u26a0\ufe0f\",then use `MEMORY_CONTEXT` and if it is still not found then reply:\n\"No relevant data found for this query. Please refine your question based on available entities or attributes.\"\n4. Tailor your response focus depending on the type of query:\n   - **Entity queries** \u2192 summarize key metrics, performance, or attributes of that entity.\n   - **Comparison queries** \u2192 contrast multiple entities, highlight differences and similarities.\n   - **Trend/analytics queries** \u2192 emphasize patterns, insights, and notable changes over time.\n   - **Category/aggregate queries** \u2192 group, rank, or summarize based on available data fields.\n5. If the query refers to an **ambiguous entity** (e.g., \"Vivek\" but dataset has multiple `Vivek`s with different surnames/IDs),\n   then **do NOT generate an answer**. Instead reply:\n   \"Multiple possible matches found. Please specify which one you mean.\"\n   Actually we have to requestioning the user for clarification.and that will be in max 3 lines(Most Important)\n   Please provide more details about the entity you are referring to, such as its attributes or related context.\n\n---\n\n### **Required Answer Format**\n1- **Intro Line** \u2013 One sentence that sets the context of the answer. Examples:\n    - For entity queries: \"Here's a snapshot of [Entity Name] based on the data\u2026\"\n    - For comparison queries: \"Here's how [Entity A] stacks up against [Entity B]\u2026\"\n    - For trend queries: \"Here's the trend we see in [Metric/Field] over time\u2026\"\n    And also provide a **one-liner direct answer** upfront if possible.\n\n2- **Relevant Heading** \u2013 A bold, concise takeaway (you may create your own heading). One-sentence, high-impact takeaway that directly answers the question(should be in bold and highlighted ans also font size is 1 pointer bigger that other Always, and also use releavent emojis ).\n\n3- **Narrative** \u2013 2\u20133 sentences of context/analysis with domain-neutral clarity. Use engaging style with emojis where suitable (\ud83d\udcca\u2705\u26a1\ud83d\udcc8\u274c)(Important).\n\n4- **Bullet Points** \u2013 3 concise, data-backed key insights.\n\n5- **Recommendation / Conclusion** \u2013\n    - For decision-support queries \u2192 provide a clear recommendation (\"Entity X outperforms others in efficiency \u2705\").\n    - For descriptive/statistical queries \u2192 provide a conclusion (\"This dataset shows a clear upward trend in Y\").\n\n6- **Formatting Rules:**\n    - Use markdown tables only if structured data in `rows` supports it.\n    - Never output raw JSON.\n\n7- **Note at the End (if required):**\n    If response is limited by available data, add a disclaimer such as:\n    \"Note: This answer is based solely on the provided dataset. Additional data may change the conclusion.\n        Feel free to ask if you'd like me to explore another entity or attribute.\"\n\n---\n\n### **Tone & Style**\n- Heading and the important information should be in **bold** and highlighted and also font size is 1 pointer bigger that other (Always and must important), confident, energetic, Clear and straight forward.\n- Sprinkle relevant emojis (\ud83d\udcca\u26a1\u2705\ud83d\udd25\ud83d\udcc8) to enhance readability.\n- Always match the **language of the question**(language can be hinglish or any other language). If language detection fails, reply:\n\"Language not detected. Please re-ask in another language.\"\n- Keep answers tight, structured, and engaging.\n\n---\n\n### **Guardrails**\n- No speculation, only use the data provided.\n- Every claim must tie directly to `rows`.\n- No external knowledge or fabricated stats.\n- If `rows` is empty or irrelevant, THEN ANSWER USING THE MEMORY CONTEXT.\n- If a query is unrelated to available data, politely redirect with:\n\"No relevant data found for this query. Please refine your question.And check for the Access of the data\"\n",
+      "formatting": "### Formatting Guidelines:\n\n**Default Structure:**\n- **Summary line**: Quick takeaway.\n- **Markdown tables**: For structured data presentation\n- **Bullet points**: 2\u20135 insights.\n- **Narrative**: For context.\n- **Verdict**: Clear conclusions or recommendations.\n\n**For questions about entities, use:**\n- **Markdown tables**: For entity stats (include relevant columns based on data type)\n\n**For questions related to comparisons, use:**\n- **Markdown tables**: For comparison data (include columns: Entity, Key Metrics, Values, Performance)\n\n**IMPORTANT:**\n- You must answer ONLY using the data returned by the database/tool.\n- If the answer is not in the returned data, reply: \"No data available for this query.\"\n- Do NOT use your own knowledge or make up any facts.\n- Use emojis appropriately to enhance readability: \ud83d\udcca\u2705\u26a1\ud83d\udcc8\u274c\ud83d\udd25\n",
+      "analysis": "### Analysis Guidelines:\n\n**Data Processing:**\n- Examine all provided data carefully\n- Identify patterns, trends, and anomalies\n- Calculate relevant metrics from the raw data\n- Cross-reference information when possible\n\n**Insight Generation:**\n- Extract meaningful insights that directly answer the user's question\n- Provide context for numbers and statistics\n- Highlight significant findings\n- Note any limitations in the data\n\n**Quality Assurance:**\n- Verify calculations and logic\n- Ensure all claims are data-backed\n- Check for consistency across different data points\n- Validate that conclusions match the evidence\n",
+      "context": "### Context Considerations:\n\n**Query Understanding:**\n- Analyze the user's intent behind the question\n- Consider the domain and business context\n- Identify the type of analysis required (descriptive, comparative, trend, etc.)\n\n**Response Adaptation:**\n- Tailor the response style to the query type\n- Adjust technical depth based on the question complexity\n- Consider follow-up questions the user might have\n\n**Memory Integration:**\n- Use MEMORY_CONTEXT for follow-up questions\n- Reference previous conversations when relevant\n- Maintain consistency with past responses\n- Build upon previous insights when applicable\n"
+    },
+    "suggested_questions_settings": {
+      "enabled": true,
+      "custom_prompt": "Generate relevant follow-up questions based on the user's original question and the assistant's answer. Focus on:\nQuestions should be short(10-12 words) and simple also highly relevant to the context according to the Question and Answer.\nMake questions specific, actionable, and likely to provide valuable insights for the users.\n",
+      "max_questions": 3
+    },
+    "answering_templates": [
+      {
+        "id": "722ee8c8-096d-4bb1-bbec-3e44576285f2",
+        "name": "Money conversion",
+        "enabled": true,
+        "text": "If the question ask about the Bills and payments then convert the bill amout in the indian rupees"
+      },
+      {
+        "id": "cd577c6d-ed55-4b7e-8e0a-c45f752c9a54",
+        "name": "Ambiguous Questions",
+        "enabled": true,
+        "text": "If user ask any ambiguous question then re-ask a question for the context(for example : question is tell me about \"X\" , and we have multiple \"X\" data in our raw data the re-ask the question the we have Multiple \"X\" in out data please specify in 2- 3 lime not more than that(Most Important do not give any summary or information about \"X\"s)"
+      },
+      {
+        "id": "5e2b1a15-cf41-44f1-81b6-9a7d93d4b825",
+        "name": "Name Query",
+        "enabled": true,
+        "text": "If there is question asking about Name of a person the give answer in one line and give just name(Most important Don't give any other information rather than name )"
+      }
+    ]
+  }
+}

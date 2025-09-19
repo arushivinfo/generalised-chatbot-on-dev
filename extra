@@ -133,6 +133,39 @@ if "answering_templates" not in st.session_state:
 
 # --- 1.  callback for “thinking” pane ----------------------------
 
+class StreamlitStepHandler(BaseCallbackHandler):
+    """Collects agent/tool events and renders them to a container."""
+    def __init__(self, container):
+        self.container = container
+        self.lines = []
+
+    # ------------- callbacks -------------
+    def on_agent_action(self, action, **_):
+        self.lines.append(f"**Thought**: {action.log}")
+
+    def on_tool_start(self, tool, *_args, **_):
+        """Handle the start of a tool call.
+
+        ``tool`` may be a Tool instance or a serialized dict depending on the
+        langchain version. Accept *args to remain forwards compatible.
+        """
+        name = getattr(tool, "name", None)
+        if name is None and isinstance(tool, dict):
+            name = tool.get("name")
+        self.lines.append(f"**Action**: {name}")
+
+    def on_tool_end(self, output, **_):
+        self.lines.append("**Observation**: *(tool output received)*")
+
+    def on_agent_finish(self, finish, **_):
+        self.lines.append("**Finish**")
+
+    # ------------- renderer -------------
+    def render(self):
+        # Join lines once per render to avoid flicker
+        self.container.markdown("\n\n".join(self.lines), unsafe_allow_html=True)
+
+
 class StreamlitCB(BaseCallbackHandler):
     def __init__(self, container):
         self.container = container
@@ -636,13 +669,15 @@ if st.button("Clear Chat"): st.session_state.chat = []; st.rerun()
 
 chat_tab, prompt_tab = st.tabs(["Chat", "Prompt Settings"])
 import time
-from answer_gen import process_question_complete
-
 with chat_tab:
-    t1 = time.time()
+    t1= time.time()
     if "pending_question" not in st.session_state:
         st.session_state.pending_question = None
     
+    # Clear the skip_suggestions flag for new interactions
+    if "skip_suggestions" in st.session_state:
+        del st.session_state.skip_suggestions
+
     # Debug: Check if we have a pending question
     if st.session_state.pending_question:
         print(f"Found pending question: {st.session_state.pending_question}")
@@ -667,36 +702,195 @@ with chat_tab:
         if q:
             print(f"Got question from chat input: {q}")
 
+
     if q:
-        # Add question to chat history
         st.session_state.chat.append(("user", q))
         with st.chat_message("user"):
             st.markdown(q)
 
         with st.chat_message("assistant"):
             resp_container = st.empty()
-            step_box = st.expander("Intermediate steps", expanded=False)
-            dbg_box = st.expander("Debug info", expanded=False)
-            prompt_debug = st.expander("Prompt sent to LLM", expanded=False)
-            
-            # Clear any pending questions
+
+            step_box   = st.expander("Intermediate steps", expanded=False)
+            step_cb    = StreamlitStepHandler(step_box)
             if st.session_state.get("pending_question"):
                 del st.session_state.pending_question
 
-            # Process the complete question pipeline (includes suggested questions)
-            answer, success = process_question_complete(
-                question=q,
-                resp_container=resp_container,
-                step_box=step_box,
-                dbg_box=dbg_box,
-                prompt_debug=prompt_debug
-            )
-            
-            # Add answer to chat history
-            st.session_state.chat.append(("assistant", answer))
 
-        t2 = time.time()
-        print(f"Total time for processing question: {t2 - t1:.6f} seconds")
+            # STEP 0 – **no rewrite**: just use the original question
+            standalone_q = q
+            step_box.markdown("**Step**: Using original question (no rewrite) 🔍", unsafe_allow_html=True)
+
+            # STEP 1 – structured search on the rewritten question
+            with st.spinner("Planning and retrieving documents 📂️..."):
+                user_id = st.session_state.get("user_name", "anonymous")
+                team_id = st.session_state.get("team_id", "default_team")
+                # Get session ID if tracking sessions
+                session_id = st.session_state.sid if st.session_state.display_session_id else None
+                spec, rows_text, dbg = run_search_agent(user_id, team_id, standalone_q, callbacks=[step_cb], session_id=session_id)
+                step_cb.render()  # show steps up to now
+
+            # Check if the user attempted to access restricted collections
+            attempted_restricted = False
+            if rows_text and rows_text.startswith("⚠️ Access denied:"):
+                attempted_restricted = True
+                st.warning(rows_text)
+                
+            # Prepare debug info
+            dbg_box = st.expander("Debug info", expanded=False)
+            debug_content = {
+                "Query Spec": spec,
+                "MongoDB Filters": dbg.get("filters", []),
+                "Chosen Collections": dbg.get("chosen_collections", []),
+                "Restricted Collections": dbg.get("restricted_collections", []),
+                "RLS Status": {
+                    "rls_values": st.session_state.get("rls_values", {}),
+                    "user_role": st.session_state.get("user_role"),
+                    "bypass_active": user_role in bypass_roles if 'bypass_roles' in locals() else False
+                },
+                "Raw Results": rows_text
+            }
+            dbg_box.code(json.dumps(debug_content, indent=2, default=str), language="json")
+
+            # STEP 2  – narrative answer
+            with st.spinner("Generating your answer 🔥..."):
+                
+                # lang = st.session_state.mem_agent.last_lang
+                from lang_detect import LangDetectAgent
+                mem = LangDetectAgent()  # Create a new instance for each query
+                lang = mem.detect_language(q)
+                print('Detected_languadge:',lang)  # Detect language of the question
+
+                # 1) Build a structured rows blob from chosen collections (no raw JSON)
+                rows_clean = build_rows_for_prompt(dbg)
+                
+                # Check for access denied messages
+                access_denied = rows_text and rows_text.startswith("⚠️ Access denied:")
+
+                if access_denied:
+                    # Use a custom error message for access denied
+                    answer = f"{rows_text}\n\nPlease contact an administrator if you need access to this collection."
+                    resp_container.markdown(answer)
+                    st.session_state.chat.append(("assistant", answer))
+                    
+                       # Save memory to cache
+                    from cache_memory import save_to_cache
+                    session_id = st.session_state.sid if st.session_state.display_session_id else None
+                    # Clean the answer for memory - remove code blocks and source query sections
+                    answer_for_memory = re.sub(r'```[\s\S]*?```', '', answer)
+                    answer_for_memory = re.sub(r'Source Query[:\s]*[\s\S]*$', '', answer_for_memory, flags=re.IGNORECASE).strip()
+                    answer_for_memory = re.sub(r'\{[^{}]*\}', '', answer_for_memory)
+                    save_to_cache(q, answer_for_memory, user_id, team_id, session_id=session_id)
+                    st.session_state.skip_suggestions = True
+                else:
+                    # Only execute this block if access is not denied
+                    # Load latest admin prompt settings before composing response
+                    load_admin_prompt_settings()
+                    
+                    # 2) Append enabled "Answering Templates" ONLY into PROMPT_FORMATTING
+                    sections_rt = dict(st.session_state.prompt_sections)   # shallow copy
+                    
+                    formatting_text = sections_rt.get("formatting", "")
+
+                    enabled_templates = [
+                        t["text"] for t in st.session_state.answering_templates
+                        if t.get("enabled") and t.get("text","").strip()
+                    ]
+                    if enabled_templates:
+                        formatting_text = (formatting_text.rstrip() + "\n\n" + "\n\n".join(enabled_templates)).strip()
+                    sections_rt["formatting"] = formatting_text  # PROMPT_FORMATTING only
+
+                    # 3) Compose final prompt with structured rows + augmented formatting
+                    # Get session ID if tracking sessions
+                    session_id = st.session_state.sid if st.session_state.display_session_id else None
+                    
+                    prompt = compose_prompt(
+                        sections_rt,  # make sure to use sections_rt, not original
+                        question=q,
+                        rows=rows_clean,
+                        language=lang,
+                        memory_context=get_memory_prompt(3, user_id, team_id, session_id)
+                    )
+                    print("#############Final prompt composed:", prompt,"#########################")
+
+                    st.code(dbg.get("filters")) 
+                    
+                    prompt_debug = st.expander("Prompt sent to LLM", expanded=False)
+                    prompt_debug.code(prompt, language="markdown")
+
+                  # Convert to proper message format for call_narrator_model
+                    messages = [{"role": "user", "content": prompt}]
+                    
+                    # Stream the answer
+                    stream = call_narrator_model(messages, stream=True)
+                    print("Streaming response...###############################")
+                    answer = ""
+                    for chunk in stream:
+                        if chunk:  # Only process non-empty chunks
+                            answer += chunk
+                            if resp_container:
+                                resp_container.markdown(answer)
+                    # --- After streaming, try to generate charts ---
+
+                    step_cb.render()
+
+                    st.session_state.chat.append(("assistant", answer))
+
+                    # Save memory to cache
+                    from cache_memory import save_to_cache
+                    session_id = st.session_state.sid if st.session_state.display_session_id else None
+                    save_to_cache(q, answer, user_id, team_id, session_id=session_id)
+
+            # NEW: Generate and display suggested questions (only if enabled and access wasn't denied)
+            # Load latest admin settings for suggested questions
+            load_admin_prompt_settings()
+            
+            # Generate suggested questions - admin config loaded automatically by get_suggested_questions
+            if st.session_state.suggested_questions_settings.get("enabled", True) and not st.session_state.get("skip_suggestions", False):
+                with st.spinner("Generating suggested questions..."):
+                    try:
+                        # The get_suggested_questions function now loads admin config automatically
+                        # But we still use local session settings as fallback for compatibility
+                        custom_prompt = st.session_state.suggested_questions_settings.get("custom_prompt", DEFAULT_SUGGESTED_QUESTIONS_PROMPT)
+                        max_questions = st.session_state.suggested_questions_settings.get("max_questions", DEFAULT_SUGGESTED_QUESTIONS_COUNT)
+                        
+                        # Pass parameters - function will prioritize admin config over these
+                        suggested_questions = get_suggested_questions(
+                            q, answer, Row_data=rows_clean,
+                            max_questions=max_questions,
+                            custom_prompt=custom_prompt  # This parameter may need to be added to the function
+                        )
+                        
+                        if suggested_questions:
+                            st.markdown("### 💡 You might also want to ask:")
+                            
+                            # Create columns for better layout
+                            cols = st.columns(len(suggested_questions))
+                            
+                            # Create a callback function for button clicks
+                            def set_pending_question(suggestion_text):
+                                st.session_state.pending_question = suggestion_text
+                                print(f"Callback: Set pending_question to: {suggestion_text}")
+                            
+                            for i, suggestion in enumerate(suggested_questions):
+                                print(f"Suggestion {i}: {suggestion}")  # Debugging line
+                                with cols[i]:
+                                    # Use a unique key for each button to avoid conflicts
+                                    button_key = f"suggest_{len(st.session_state.chat)}_{i}_{hash(suggestion)}"
+                                    if st.button(
+                                        f"❓ {suggestion}", 
+                                        key=button_key, 
+                                        help="Click to ask this question",
+                                        on_click=set_pending_question,
+                                        args=(suggestion,)
+                                    ):
+                                        print(f"Button clicked for suggestion: {suggestion}")  # This will execute
+                                        # The callback will handle setting the pending question
+                                        pass  # Remove st.rerun() from here
+                    except Exception as e:
+                        st.error(f"Error generating suggestions: {e}")
+                    t2 = time.time()
+                    print(f"Total time for processing question: {t2 - t1:.6f} seconds")
 
 with prompt_tab:
     st.markdown("## 🔧 Admin Notice")
