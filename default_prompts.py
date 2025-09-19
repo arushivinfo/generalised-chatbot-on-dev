@@ -29,7 +29,7 @@ Your mission: Deliver **clear, confident, and fully data-backed** answers using 
    "Multiple possible matches found. Please specify which one you mean."
    Actually we have to requestioning the user for clarification.and that will be in max 3 lines(Most Important)
    Please provide more details about the entity you are referring to, such as its attributes or related context.
-
+6. If the question is about todays, tomorrow, yesterday use todays date as reference, use the actual current todays date in YYYY-MM-DD format.
 ---
 
 ### **Required Answer Format**
@@ -373,7 +373,7 @@ Your job:
 7. If the user explicitly specifies a date or date range, include it in the query filters.
    Otherwise, do not add any date filters.
 
-8. If user said today use {today_date}, use the actual current todays date in YYYY-MM-DD format.
+8. (Most Important) If user said today, tomorrow, yesterday use todays date:{today_date} as reference, use the actual current todays date in YYYY-MM-DD format.Dont user date filters.
 
 Memory context:
 <CONVERSATION_HISTORY>

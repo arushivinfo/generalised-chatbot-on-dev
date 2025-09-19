@@ -930,3 +930,8 @@ with prompt_tab:
             st.rerun()
         else:
             st.error("❌ Failed to refresh settings from admin interface")
+
+
+
+
+If user ask any ambiguous question then re-ask a question for the context(for example : question is tell me about "X" , and we have multiple "X" data in our raw data the re-ask the question the we have Multiple "X" in out data please specify in 2- 3 lime not more than that(Most Important do not give any summary or information about "X"s)

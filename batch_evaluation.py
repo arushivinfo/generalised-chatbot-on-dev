@@ -11,7 +11,8 @@ print(f"DEBUG: API Key ending: {os.getenv('OPENAI_API_KEY', 'NOT_FOUND')[-10:]}"
 current_key = os.getenv('OPENAI_API_KEY', '')
 if current_key.endswith('8OMA'):
     print("WARNING: Detected old API key, forcing update...")
-    os.environ['OPENAI_API_KEY'] = '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'
+    os.environ['OPENAI_API_KEY'] = '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'
+ 
     print(f"Updated API Key ending: {os.getenv('OPENAI_API_KEY', 'NOT_FOUND')[-10:]}")
 
 # Rest of your imports...
@@ -23,163 +24,162 @@ import time
 import datetime
 import os
 import sys
-from typing import List, Dict, Any, Optional
-from default_prompts import get_default_prompt_sections, compose_question_and_rows_prompt
-from response_gen import get_admin_prompt_sections
+from typing import List, Dict, Any, Optional, Tuple  # Added Tuple here
 
 # Add this at the top to prevent page config conflicts when importing other modules
 os.environ["STREAMLIT_DISABLE_SET_PAGE_CONFIG"] = "true"
+
+# Import the centralized response handler
+from answer_gen import ResponseHandler
+
 from schema_registry import load_registry, get_descriptions, get_response_prompt_config
 from schema_registry import load_registry, get_collection_names, get_descriptions
+
 def _coll_meta_from_registry():
     reg = load_registry()
     names = get_collection_names(reg)       # {'matches': '<coll>', ...}
     desc = get_descriptions(reg)        # {'<coll>': 'short description', ...}
     return {name: (name, (desc.get(name) or "no description")) for name in names}
 
-
 import pandas as pd
 COLL_META = _coll_meta_from_registry()
-# Direct implementation of essential functions without importing frontend.py
-def build_rows_for_prompt(dbg: dict) -> str:
-    """Render full objects (pretty JSON) per collection."""
-    cols_order = dbg.get("chosen_collections", []) or []
-    results    = dbg.get("results", []) or []
-    blocks     = []
-    for i, coll in enumerate(cols_order):
-        res  = results[i] if i < len(results) else {}
-        docs = res.get("docs", []) or []
-        if not docs:
-            blocks.append(f"# {coll}\n(no rows)")
-            continue
-        blob = "\n\n".join("```json\n" + json.dumps(d, indent=2, default=str) + "\n```" for d in docs)
-        blocks.append(f"# {coll}\n{blob}")
-    return "\n\n".join(blocks) or "(no rows)"
 
-
-if "answering_templates" not in st.session_state:
-    # Start empty; you can add any generic templates from the UI
-    st.session_state.answering_templates = []
-
-# Initialize prompt sections from centralized defaults
-if "prompt_sections" not in st.session_state:
-    # Load from admin configuration or use centralized defaults
-    try:
-        from schema_registry import get_response_prompt_config
-        admin_config = get_response_prompt_config()
-        
-        # Load from admin config if available, otherwise use centralized defaults
-        if admin_config.get("prompt_sections"):
-            st.session_state.prompt_sections = admin_config["prompt_sections"]
-        else:
-            st.session_state.prompt_sections = get_default_prompt_sections()
-    except Exception as e:
-        # Fallback to centralized defaults if admin config fails
-        st.session_state.prompt_sections = get_default_prompt_sections()
-
-from uuid import uuid4
-def process_query_for_batch(question):
-    """
-    Simplified version of process_query_core that doesn't require importing frontend.py
-
-    """
+class BatchResponseHandler(ResponseHandler):
+    """Modified ResponseHandler for batch processing without suggested questions and memory."""
     
-    try:
-        # Import necessary components directly
-        from search_agent_new import run_search_agent,get_memory_prompt
-        from response_gen import  compose_prompt
-        from llm_services import call_narrator_model
-        from cache_memory import  save_to_cache
+    def __init__(self):
+        super().__init__()
+    
+    def generate_response(self, question: str, rows_clean: str, lang: str, user_id: str = 'admin', team_id: str = 'admin', session_id: Optional[str] = 'admin') -> Tuple[str, List[dict]]:
+        """Generate the AI response using the composed prompt - batch version without memory."""
+        # Load latest admin prompt settings
+        self.load_admin_prompt_settings()
         
-        from lang_detect import LangDetectAgent
+        # Append enabled "Answering Templates" ONLY into formatting section
+        sections_rt = dict(st.session_state.prompt_sections)  # shallow copy
         
-        if "answering_templates" not in st.session_state:
-            # Initialize with admin configuration or defaults
-            try:
-                from schema_registry import get_response_prompt_config
-                admin_config = get_response_prompt_config()
-                st.session_state.answering_templates = admin_config.get("answering_templates", [])
-            except:
-                st.session_state.answering_templates = []
-        
-        # Create debug dict
-        debug_info = {}
-        callbacks = []
-        
-        if "prompt_sections" not in st.session_state:
-            # Initialize from admin configuration or centralized defaults
-            try:
-                from schema_registry import get_response_prompt_config
-                admin_config = get_response_prompt_config()
-                
-                if admin_config.get("prompt_sections"):
-                    st.session_state.prompt_sections = admin_config["prompt_sections"]
-                else:
-                    st.session_state.prompt_sections = get_default_prompt_sections()
-            except:
-                st.session_state.prompt_sections = get_default_prompt_sections()
-        # Get memory context
-        standalone_q = question
-        # STEP 1 — Run search agent to get structured data
-        spec, rows_text, dbg = run_search_agent('admin', 'admin', standalone_q, session_id='admin', callbacks=[])
-        
-        # STEP 2 — Generate narrative answer
-        # Detect language
-        mem = LangDetectAgent()
-        lang = mem.detect_language(question)
-        
-        # Build structured rows for prompt
-        rows_clean = build_rows_for_prompt(dbg)
-        
-        # Get prompt sections from session state or use defaults
-        sections_rt = dict(st.session_state.prompt_sections)
         formatting_text = sections_rt.get("formatting", "")
         
         enabled_templates = [
-            t.get("text", t.get("template", "")) for t in st.session_state.answering_templates
-            if t.get("enabled", True) and (t.get("text") or t.get("template", "")).strip()
+            t["text"] for t in st.session_state.answering_templates
+            if t.get("enabled") and t.get("text", "").strip()
         ]
+        
         if enabled_templates:
             formatting_text = (formatting_text.rstrip() + "\n\n" + "\n\n".join(enabled_templates)).strip()
+        
         sections_rt["formatting"] = formatting_text
-        # print('sections_rt:', sections_rt)
-        # Compose final prompt
+        
+        # Import compose_prompt here to avoid circular imports
+        from response_gen import compose_prompt
+        
+        # Compose final prompt with structured rows + augmented formatting (NO MEMORY for batch)
         prompt = compose_prompt(
-                        sections_rt,  # make sure to use sections_rt, not original
-                        question=question,
-                        rows=rows_clean,
-                        language=lang,
-                        memory_context=get_memory_prompt(3, 'admin', 'admin', 'admin')  # get last 3 memories
-                    )
-        #print("Final prompt for narrator:", prompt)
+            sections_rt,
+            question=question,
+            rows=rows_clean,
+            language=lang,
+            memory_context=""  # Empty memory context for batch processing
+        )
         
-        # Get answer directly
-        # Get answer directly
-        t0 = time.time()
+        print(f"Final prompt composed: {prompt[:200]}...")
+        
+        # Convert to proper message format for call_narrator_model
         messages = [{"role": "user", "content": prompt}]
-        result = call_narrator_model(messages, stream=False)
-        answer = result
-        t1 = time.time()
-        response_time = t1 - t0
-        char_count = len(str(answer))
-        time_per_char = response_time / char_count if char_count > 0 else 0
-        print(f"Narrator response time: {response_time:.6f} seconds")
-        print(f"Response character count: {char_count}")
-        print(f"Time per character: {time_per_char:.6f} seconds/char")
-    
         
-        # Save to memory cache
-        answer_for_memory = re.sub(r'```[\s\S]*?```', '', answer)
-        answer_for_memory = re.sub(r'Source Query[:\s]*[\s\S]*$', '', answer_for_memory, flags=re.IGNORECASE).strip()
-        save_to_cache(question, answer_for_memory, 'admin', 'admin', session_id='admin')
+        return prompt, messages
+    
+    def stream_response_batch(self, messages: List[dict]) -> str:
+        """Non-streaming version for batch processing."""
+        from llm_services import call_narrator_model
+        
+        # Get answer directly without streaming
+        answer = call_narrator_model(messages, stream=False)
+        print("Batch response generated...")
+        
+        return answer
 
+def process_question_batch(question: str) -> Tuple[str, bool, dict, str]:
+    """
+    Simplified question processing for batch evaluation using centralized ResponseHandler.
+    
+    Args:
+        question: User's question
+    
+    Returns:
+        Tuple of (answer, success_flag, debug_info, spec)
+    """
+    start_time = time.time()
+    handler = BatchResponseHandler()
+    
+    try:
+        # Get user context (fixed for batch)
+        user_id = 'admin'
+        team_id = 'admin' 
+        session_id = 'admin'
+        
+        # Step 1: Structured search on the question
+        from search_agent_new import run_search_agent
+        
+        spec, rows_text, dbg = run_search_agent(user_id, team_id, question, callbacks=[], session_id=session_id)
+        
+        # Check for access restrictions
+        access_denied = rows_text and rows_text.startswith("⚠️ Access denied:")
+        if access_denied:
+            return f"{rows_text}\n\nPlease contact an administrator if you need access to this collection.", False, dbg, spec
+        
+        # Step 2: Generate narrative answer
+        # Detect language
+        lang = handler.lang_detector.detect_language(question)
+        print(f'Detected language: {lang}')
+        
+        # Build structured rows from chosen collections
+        rows_clean = handler.build_rows_for_prompt(dbg)
+        
+        # Generate response
+        prompt, messages = handler.generate_response(question, rows_clean, lang, user_id, team_id, session_id)
+        
+        # Get the response (non-streaming for batch)
+        answer = handler.stream_response_batch(messages)
+        
+        # NO cache saving for batch processing
+        # NO suggested questions for batch processing
+        
+        end_time = time.time()
+        print(f"Total time for processing question: {end_time - start_time:.6f} seconds")
+        
+        return answer, True, dbg, spec
+        
+    except Exception as e:
+        print(f"Error in process_question_batch: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"Error: {e}", False, {}, {}
+
+def process_query_for_batch(question):
+    """
+    Updated version using centralized ResponseHandler.
+    """
+    try:
+        # Use the centralized batch processing function
+        answer, success, dbg, spec = process_question_batch(question)
+        
+        # Build debug info for compatibility
+        debug_info = {
+            "filters": dbg.get("filters", []),
+            "chosen_collections": dbg.get("chosen_collections", []),
+            "restricted_collections": dbg.get("restricted_collections", [])
+        }
+        
+        # Build rows text for compatibility
+        handler = BatchResponseHandler()
+        rows_text = handler.build_rows_for_prompt(dbg)
+        
         return answer, spec, debug_info, rows_text, dbg, []
     
     except Exception as e:
         # Handle errors
         return f"Error: {str(e)}", {}, {"error": str(e)}, "", {}, []
-
-
 
 def ensure_page_config():
     """Only set page config if this is run as main script"""
@@ -193,6 +193,7 @@ def ensure_page_config():
             page_icon="🔍",
             layout="wide",
         )
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def process_question(question, idx, total):
@@ -249,6 +250,7 @@ def process_question(question, idx, total):
             "time_taken": 0,
             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
+
 def process_all_questions_parallel(questions: List[str]) -> List[Dict[str, Any]]:
     """Process all questions in parallel without batching"""
     total = len(questions)
@@ -258,7 +260,7 @@ def process_all_questions_parallel(questions: List[str]) -> List[Dict[str, Any]]
     status_text = st.empty()
     completed_count = 0
 
-    status_text.text(f"Processing {total} questions in parallel...")
+    status_text.text(f"Processing {total} questions in parallel using centralized ResponseHandler...")
 
     # Run all questions in parallel with automatic worker management
     max_workers = min(total, 20)  # Automatically set workers based on question count, max 20
@@ -299,7 +301,7 @@ def process_all_questions_parallel(questions: List[str]) -> List[Dict[str, Any]]
     final_results = [result for _, result in results]
 
     progress_bar.progress(1.0)
-    status_text.text(f"Completed processing all {total} questions!")
+    status_text.text(f"Completed processing all {total} questions using centralized system!")
     return final_results
 
 def render_batch_evaluation_ui():
@@ -313,6 +315,9 @@ def render_batch_evaluation_ui():
         st.session_state.eval_running = False
     if "eval_complete" not in st.session_state:
         st.session_state.eval_complete = False
+    
+    # Display info about centralized system
+    st.info("🎯 **Using Centralized Response System**: This batch evaluation now uses the same response generation pipeline as the main chat interface, ensuring consistent results.")
     
     # Step 1: Load Questions
     st.header("Step 1: Load Questions")
@@ -371,13 +376,11 @@ def render_batch_evaluation_ui():
         total = len(st.session_state.eval_results)
         success_count = sum(1 for r in st.session_state.eval_results if r.get("success", False))
         fail_count = total - success_count
-        # avg_time = sum(r.get("time_taken", 0) for r in st.session_state.eval_results) / max(total, 1)
         
-        metrics_col1, metrics_col2, metrics_col3, metrics_col4 = st.columns(4)
+        metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
         metrics_col1.metric("Total Questions", total)
         metrics_col2.metric("Successful", success_count)
         metrics_col3.metric("Failed", fail_count)
-        # metrics_col4.metric("Avg. Time (sec)", f"{avg_time:.2f}")
         
         # Add failure analysis
         if fail_count > 0:
@@ -418,12 +421,12 @@ def render_batch_evaluation_ui():
         
         with col2:  # Center the button
             if st.button("🚀 Start Evaluation", disabled=len(st.session_state.eval_questions) == 0, 
-                        help=f"Process all {len(st.session_state.eval_questions)} questions in parallel"):
+                        help=f"Process all {len(st.session_state.eval_questions)} questions using centralized ResponseHandler"):
                 if st.session_state.eval_questions:
                     try:
                         st.session_state.eval_running = True
                         
-                        # Process all questions in parallel
+                        # Process all questions in parallel using centralized system
                         results = process_all_questions_parallel(st.session_state.eval_questions)
                         
                         # Update session state
@@ -521,17 +524,14 @@ def render_batch_evaluation_ui():
                 st.write(f"Status: {'Success' if result.get('success', False) else 'Failed'}")
                 if failure_reason:
                     st.write(f"Failure Type: {failure_reason.strip('[]')}")
-                st.write(f"Time: {result.get('search_time', 'N/A')} seconds")
-                # st.write(f"Narrator time: {result.get('narrator_time', 'N/A')} seconds")
-                # st.write(f"Total time: {result.get('time_taken', 'N/A')} seconds")
+                st.write(f"Time: {result.get('time_taken', 'N/A')} seconds")
                 
                 # Show search specification
                 st.markdown("**Search Specification:**")
                 debug_content = {
                     "Query Spec": result["spec"],
                     "MongoDB Filters": result["debug_info"].get("filters", []),
-                    "Chosen Collections": result["debug_info"].get("chosen_collections", []),
-                    #"Raw Results": result.get("rows_text", "(no rows)")
+                    "Chosen Collections": result["debug_info"].get("chosen_collections", [])
                 }
                 st.json(debug_content)
     else:

@@ -541,6 +541,155 @@
           "join_type": "inner"
         }
       ]
+    },
+    "doctors": {
+      "description": "",
+      "fields": [
+        {
+          "name": "doctor_id",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Unique identifier for each doctor",
+          "options": [
+            "D001",
+            "D002",
+            "D003",
+            "D004",
+            "D005",
+            "D006",
+            "D007",
+            "D008",
+            "D009",
+            "D010"
+          ]
+        },
+        {
+          "name": "first_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Doctor's first name",
+          "options": [
+            "Alex",
+            "David",
+            "Jane",
+            "Linda",
+            "Robert",
+            "Sarah"
+          ]
+        },
+        {
+          "name": "last_name",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Doctor's last name",
+          "options": [
+            "Brown",
+            "Davis",
+            "Jones",
+            "Smith",
+            "Taylor",
+            "Wilson"
+          ]
+        },
+        {
+          "name": "specialization",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Medical specialty of the doctor",
+          "options": [
+            "Dermatology",
+            "Oncology",
+            "Pediatrics"
+          ]
+        },
+        {
+          "name": "phone_number",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Contact phone number of the doctor",
+          "options": [
+            "6176383634",
+            "6570137231",
+            "6594221991",
+            "7387087517",
+            "8217493115",
+            "8322010158",
+            "8737740598",
+            "9004382050",
+            "9069162601",
+            "9118538547"
+          ]
+        },
+        {
+          "name": "years_experience",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Number of years the doctor has practiced medicine",
+          "options": [
+            "17",
+            "19",
+            "21",
+            "23",
+            "24",
+            "26",
+            "28",
+            "5"
+          ]
+        },
+        {
+          "name": "hospital_branch",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Name of the hospital or clinic branch where the doctor works",
+          "options": [
+            "Central Hospital",
+            "Eastside Clinic",
+            "Westside Clinic"
+          ]
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "operations": [
+            "regex",
+            "sort"
+          ],
+          "description": "Doctor's professional email address",
+          "options": [
+            "dr.alex.davis@hospital.com",
+            "dr.david.jones@hospital.com",
+            "dr.david.taylor@hospital.com",
+            "dr.jane.davis@hospital.com",
+            "dr.jane.smith@hospital.com",
+            "dr.linda.brown@hospital.com",
+            "dr.linda.wilson@hospital.com",
+            "dr.robert.davis@hospital.com",
+            "dr.sarah.smith@hospital.com",
+            "dr.sarah.taylor@hospital.com"
+          ]
+        }
+      ]
     }
   },
   "core_rules": {
@@ -616,16 +765,16 @@
         "text": "If the question ask about the Bills and payments then convert the bill amout in the indian rupees"
       },
       {
-        "id": "cd577c6d-ed55-4b7e-8e0a-c45f752c9a54",
-        "name": "Ambiguous Questions",
-        "enabled": true,
-        "text": "If user ask any ambiguous question then re-ask a question for the context(for example : question is tell me about \"X\" , and we have multiple \"X\" data in our raw data the re-ask the question the we have Multiple \"X\" in out data please specify in 2- 3 lime not more than that(Most Important do not give any summary or information about \"X\"s)"
-      },
-      {
         "id": "5e2b1a15-cf41-44f1-81b6-9a7d93d4b825",
         "name": "Name Query",
         "enabled": true,
         "text": "If there is question asking about Name of a person the give answer in one line and give just name(Most important Don't give any other information rather than name )"
+      },
+      {
+        "id": "2a86f33c-d7a0-4180-9bfd-303fd367ddb4",
+        "name": "Ambiguous Query",
+        "enabled": true,
+        "text": "If user ask any ambiguous question then re-ask a question for the context(for example : question is tell me about \"X\" , and we have multiple \"X\" data in our raw data the re-ask the question the we have Multiple \"X\" in out data please specify in 2- 3 lime not more than that(Most Important do not give any summary or information about \"X\"s,**Remember dont give the Any another details about X's just reask in one line)"
       }
     ]
   }
