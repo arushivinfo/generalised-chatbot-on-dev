@@ -219,11 +219,209 @@ class RLSQueryInterceptor:
         
         return enhanced_query
     
+    def _audit_log(self, event_type: str, message: str):
+        """Add an entry to the audit log."""
+        self.audit_log.append({
+            "timestamp": datetime.now().isoformat(),
+            "event_type": event_type,
+            "message": message,
+            "user_id": self.user.user_id,
+            "role": self.user.role
+        })
+    
     def enhance_find_query_with_multilayer(self, collection: str, query: Dict, rls_values: Dict = None) -> Dict:
         """Enhanced find query with multi-layer RLS filtering and relationship traversal."""
         return self.enhance_find_query_with_relationship_traversal(collection, query, rls_values)
     
     def enhance_find_query_with_relationship_traversal(self, collection: str, query: Dict, rls_values: Dict = None) -> Dict:
+        """Enhanced find query with multi-layer RLS filtering and relationship traversal."""
+        if self.should_bypass_rls():
+            return query
+        
+        # Get configured RLS layers
+        rls_layers = self.config.get("rls_layers", [])
+        if not rls_layers and not rls_values:
+            # Fall back to single-layer RLS
+            return self.enhance_find_query(collection, query)
+        
+        # Check which fields are available in this collection
+        try:
+            reg = load_registry()
+            all_fields = get_all_fields(reg)
+            collection_fields_info = all_fields.get(collection, [])
+            
+            # Get field names that are suitable for RLS
+            available_fields = []
+            field_types = {}
+            for field_info in collection_fields_info:
+                if is_valid_rls_field(field_info):
+                    field_name = field_info["name"]
+                    available_fields.append(field_name)
+                    field_types[field_name] = field_info.get("type")
+                    
+        except Exception as e:
+            logger.error(f"Error checking collection fields for {collection}: {e}")
+            available_fields = []
+            field_types = {}
+        
+        enhanced_query = query.copy()
+        rls_filters = []
+        
+        # Apply each RLS layer 
+        for layer in rls_layers:
+            if not layer.get("enabled", True):
+                continue
+                
+            field_name = layer.get("field_name")
+            enforcement_mode = layer.get("enforcement_mode", "base_only")
+            
+            if not field_name:
+                continue
+                
+            # Get value from rls_values or use user context
+            field_value = None
+            if rls_values and field_name in rls_values:
+                field_value = rls_values[field_name]
+                # Only use the value if it's not empty/whitespace  
+                if not field_value or not str(field_value).strip():
+                    field_value = None
+                    self._audit_log("RLS_SKIP", f"Field '{field_name}' has empty/null value - skipping layer")
+                    continue
+            elif field_name == "user_id" and hasattr(self.user, 'user_id') and self.user.user_id not in ["anonymous", None, ""]:
+                field_value = self.user.user_id
+                
+            if field_value is None or not str(field_value).strip():
+                continue
+                
+            # Check if field exists directly in this collection
+            field_exists_directly = field_name in available_fields
+            
+            if field_exists_directly:
+                # Direct field application (traditional RLS)
+                field_type = field_types.get(field_name, "string")
+                if field_type in ["int", "integer", "number"]:
+                    try:
+                        field_value = int(field_value)
+                    except Exception:
+                        pass  # Keep as string if conversion fails
+                
+                rls_filters.append({field_name: field_value})
+                self._audit_log("RLS_LAYER_APPLIED", f"Applied direct RLS layer {field_name}={field_value} to {collection}")
+                
+            elif enforcement_mode == "all_involved":
+                # Relationship-based RLS - this is the key enhancement
+                try:
+                    relationship_filter = self._build_relationship_filter(collection, field_name, field_value, reg)
+                    if relationship_filter:
+                        rls_filters.append(relationship_filter)
+                        self._audit_log("RLS_LAYER_APPLIED", f"Applied relationship RLS layer {field_name}={field_value} to {collection}")
+                    else:
+                        # If no relationship found, deny access for security
+                        self._audit_log("RLS_DENY", f"No relationship path found for {field_name} in {collection} - denying access")
+                        rls_filters.append({"_id": {"$in": []}})
+                except Exception as e:
+                    logger.error(f"Error building relationship filter for {field_name} in {collection}: {e}")
+                    # On error with all_involved, be restrictive
+                    rls_filters.append({"_id": {"$in": []}})
+            else:
+                # base_only mode - skip fields that don't exist in collection
+                self._audit_log("RLS_SKIP", f"Field '{field_name}' not found in collection '{collection}' and enforcement is base_only - skipping")
+        
+        # Combine RLS filters with base query
+        if rls_filters:
+            if len(rls_filters) == 1:
+                rls_combined = rls_filters[0]
+            else:
+                rls_combined = {"$and": rls_filters}
+            
+            if enhanced_query:
+                enhanced_query = {"$and": [enhanced_query, rls_combined]}
+            else:
+                enhanced_query = rls_combined
+        else:
+            # If no RLS filters applied and we have RLS values, log warning
+            if rls_values:
+                self._audit_log("RLS_WARNING", f"No RLS filters applied for collection {collection} with values {rls_values}")
+        
+        return enhanced_query
+    
+    def _build_relationship_filter(self, collection: str, field_name: str, field_value: str, reg: Dict) -> Optional[Dict]:
+        """Build a MongoDB filter using relationship traversal for RLS enforcement.
+        
+        This is completely dynamic - works with ANY collection schema and relationship structure.
+        No hardcoded healthcare/business logic.
+        """
+        try:
+            # Get database connection
+            cfg = get_connection_config(reg)
+            if not cfg.get("mongo_uri") or not cfg.get("mongo_db"):
+                logger.error("Database connection not configured")
+                return None
+                
+            client = MongoClient(cfg["mongo_uri"])
+            db = client[cfg["mongo_db"]]
+
+            # Get collection relationships from schema registry
+            relations = get_collection_relations(reg)
+            
+            # Find path from field_name to target collection through relationships
+            target_ids = self._find_related_ids_through_relationships(
+                db, collection, field_name, field_value, relations
+            )
+            
+            if target_ids:
+                # Return filter that matches documents with these IDs
+                return {"_id": {"$in": target_ids}}
+            else:
+                # No related records found
+                return {"_id": {"$in": []}}
+                
+        except Exception as e:
+            logger.error(f"Error in _build_relationship_filter: {e}")
+            return None
+
+    def _find_related_ids_through_relationships(self, db, target_collection: str, field_name: str, field_value: str, relations: Dict) -> List:
+        """
+        Find IDs in target_collection that are related to field_value through collection relationships.
+        Completely dynamic - no hardcoded business logic.
+        """
+        try:
+            # Strategy: Use MongoDB aggregation to traverse relationships
+            # 1. Find intermediate collections that have both field_name and link to target_collection
+            
+            for collection_name, collection_relations in relations.items():
+                try:
+                    # Check if this collection has the field we're filtering on
+                    if field_name in [rel.get("local_field") for rel in collection_relations]:
+                        # This collection has our field, now check if it relates to target_collection
+                        for relation in collection_relations:
+                            if relation.get("foreign_collection") == target_collection:
+                                # Found a path! Get the linking IDs
+                                intermediate_docs = list(db[collection_name].find(
+                                    {field_name: field_value},
+                                    {relation["local_field"]: 1}
+                                ))
+                                
+                                if intermediate_docs:
+                                    linking_ids = [doc.get(relation["local_field"]) for doc in intermediate_docs if doc.get(relation["local_field"])]
+                                    
+                                    # Now find target documents
+                                    target_docs = list(db[target_collection].find(
+                                        {relation["foreign_field"]: {"$in": linking_ids}},
+                                        {"_id": 1}
+                                    ))
+                                    
+                                    return [doc["_id"] for doc in target_docs]
+                
+                except Exception as e:
+                    logger.warning(f"Error checking relationship path through {collection_name}: {e}")
+                    continue
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"Error in _find_related_ids_through_relationships: {e}")
+            return []
         """Enhanced find query with multi-layer RLS filtering and relationship traversal."""
         if self.should_bypass_rls():
             return query

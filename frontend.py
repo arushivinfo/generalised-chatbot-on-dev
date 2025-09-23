@@ -308,7 +308,7 @@ with st.sidebar:
                             st.write(f"**{display_name}**: ❌ Not found in any collection")
             
             # Create input fields for each enabled layer
-            for layer in rls_layers:
+            for layer_idx, layer in enumerate(rls_layers):
                 if not layer.get("enabled", True):
                     continue
                     
@@ -318,6 +318,9 @@ with st.sidebar:
                 # Get current value
                 current_value = st.session_state.rls_values.get(field_name, "")
                 
+                # Create unique key using both field name and layer index
+                unique_key = f"rls_input_{field_name}_{layer_idx}"
+                
                 # Special handling for user_id field - show dropdown with available options
                 if field_name.lower() == "user_id":
                     new_value = st.selectbox(
@@ -325,7 +328,7 @@ with st.sidebar:
                         options=[""] + available_user_ids,
                         index=available_user_ids.index(current_value) + 1 if current_value in available_user_ids else 0,
                         help=f"Select {display_name.lower()} for authentication",
-                        key=f"rls_input_{field_name}"
+                        key=unique_key
                     )
                 else:
                     # Text input for other fields
@@ -333,7 +336,7 @@ with st.sidebar:
                         f"{display_name}",
                         value=current_value,
                         help=f"Enter value for {display_name.lower()} authentication",
-                        key=f"rls_input_{field_name}"
+                        key=unique_key
                     )
                 
                 # Update session state
