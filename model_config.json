@@ -1,0 +1,8 @@
+{
+  "narrator_model": "gpt-4.1-mini",
+  "search_agent_model": "gpt-4.1-mini",
+  "last_updated": "2025-09-12T12:20:27.525531",
+  "narrator_model_model": "gpt-4o-mini",
+  "search_agent_model_model": "gpt-4o-mini",
+  "admin_ai_model": "gpt-4.1-mini"
+}
